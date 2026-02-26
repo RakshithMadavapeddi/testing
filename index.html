@@ -1,222 +1,459 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hotel Operations App</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Hotel Ops Flow</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
 
   <link rel="stylesheet" href="styles.css" />
 </head>
+
 <body>
+  <div class="app">
+    <div class="frame" role="application" aria-label="Hotel Ops App">
+      <!-- ===================== 0. Dashboard ===================== -->
+      <section class="screen is-active" id="screen-dashboard" aria-label="Dashboard">
+        <header class="topbar">
+          <div class="topbar__title">Example XYZ Hotels</div>
+          <div class="topbar__actions">
+            <button class="iconbtn" type="button" aria-label="Account" id="btnAccount">
+              <img alt="" src="https://www.figma.com/api/mcp/asset/0e4b4283-d49d-486d-af51-8e5ac8a39887" />
+            </button>
+            <button class="iconbtn" type="button" aria-label="Logout" id="btnLogout">
+              <img alt="" src="https://www.figma.com/api/mcp/asset/b597587e-efae-48a3-a2ab-1e32a81acf2c" />
+            </button>
+          </div>
+        </header>
 
-<div id="app">
+        <main class="content">
+          <div class="greeting">Good Afternoon, John Doe.</div>
 
-  <!-- ================= DASHBOARD ================= -->
-  <section class="screen active" id="screen-dashboard">
-    <header class="appbar">
-      <h1>Example XYZ Hotels</h1>
-      <div class="actions">
-        <button id="profileBtn">👤</button>
-        <button id="logoutBtn">⎋</button>
+          <button class="tile tile--enabled" data-nav="guest-registration">Check-In</button>
+          <button class="tile tile--disabled" disabled>Check-Out</button>
+          <button class="tile tile--disabled" disabled>Stay-Over</button>
+
+          <div class="divider">
+            <div class="divider__line"></div>
+            <div class="divider__label">Other</div>
+            <div class="divider__line"></div>
+          </div>
+
+          <div class="grid2">
+            <button class="tile tile--disabled" disabled>Dashboard</button>
+            <button class="tile tile--disabled" disabled>Bookings</button>
+          </div>
+
+          <div class="grid2">
+            <button class="tile tile--disabled" disabled>Reports</button>
+            <button class="tile tile--disabled" disabled>Payments</button>
+          </div>
+
+          <div class="footer-note">Version 1.0</div>
+        </main>
+      </section>
+
+      <!-- ===================== 1. Guest Registration ===================== -->
+      <section class="screen" id="screen-guest-registration" aria-label="Guest Registration">
+        <header class="topbar">
+          <button class="iconbtn" type="button" aria-label="Back" data-nav="dashboard">←</button>
+          <div class="topbar__title topbar__title--center">Guest Registration</div>
+          <button class="iconbtn" type="button" aria-label="Scan ID" data-nav="scanner">
+            <img alt="" src="https://www.figma.com/api/mcp/asset/1afd2c9f-6880-466c-8cf0-55dfcf29b573" />
+          </button>
+        </header>
+
+        <div class="progress">
+          <div class="progress__seg is-on"></div>
+          <div class="progress__seg"></div>
+          <div class="progress__seg"></div>
+          <div class="progress__seg"></div>
+        </div>
+
+        <main class="content form">
+          <div class="field">
+            <label for="fullName">Full Name*</label>
+            <input id="fullName" type="text" placeholder="Enter Full Name" autocomplete="name" />
+            <div class="error" id="err_fullName"></div>
+          </div>
+
+          <div class="field">
+            <label for="street">Street Address*</label>
+            <input id="street" type="text" placeholder="Enter Street Address" autocomplete="street-address" />
+            <div class="error" id="err_street"></div>
+          </div>
+
+          <div class="field">
+            <label for="city">City*</label>
+            <input id="city" type="text" placeholder="Enter City" autocomplete="address-level2" />
+            <div class="error" id="err_city"></div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="state">State*</label>
+              <select id="state"></select>
+              <div class="error" id="err_state"></div>
+            </div>
+            <div class="field">
+              <label for="zip">Zip Code*</label>
+              <input id="zip" type="text" inputmode="numeric" maxlength="5" placeholder="5-digit ZIP code" autocomplete="postal-code" />
+              <div class="error" id="err_zip"></div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="gender">Gender*</label>
+              <select id="gender">
+                <option value="">Select</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Other">Other</option>
+              </select>
+              <div class="error" id="err_gender"></div>
+            </div>
+            <div class="field">
+              <label for="age">Age*</label>
+              <input id="age" type="number" inputmode="numeric" placeholder="00" />
+              <div class="error" id="err_age"></div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="idType">Type of Identification</label>
+            <select id="idType">
+              <option value="">Select</option>
+              <option value="DL">DL</option>
+              <option value="ID">ID</option>
+            </select>
+            <div class="error" id="err_idType"></div>
+          </div>
+
+          <div class="field">
+            <label for="idNumber">Identification Number*</label>
+            <input id="idNumber" type="text" placeholder="0000000000" />
+            <div class="error" id="err_idNumber"></div>
+          </div>
+
+          <!-- hidden: store raw payload / DOB if you want -->
+          <input id="dobRaw" type="hidden" />
+          <textarea id="scanRaw" class="hidden" aria-hidden="true"></textarea>
+        </main>
+
+        <footer class="bottombar">
+          <button class="btn btn--primary" id="btnGuestNext" type="button">Next</button>
+        </footer>
+      </section>
+
+      <!-- ===================== 2. Scanner ===================== -->
+      <section class="screen" id="screen-scanner" aria-label="Scanner">
+        <header class="topbar">
+          <button class="iconbtn" type="button" aria-label="Close" data-nav="guest-registration">✕</button>
+          <div class="topbar__title topbar__title--center">Scanner</div>
+          <button class="iconbtn" type="button" aria-label="Flash" id="btnTorch" disabled>🔦</button>
+        </header>
+
+        <main class="scanner">
+          <div class="scanner__viewer">
+            <video id="scannerVideo" playsinline muted></video>
+            <div class="scanner__hud">
+              <div class="scanner__frame">
+                <div class="scanner__hint">Align PDF417 inside the frame</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="scanner__meta">
+            <span class="pill" id="pillEngine">Engine: …</span>
+            <span class="pill" id="pillCamera">Camera: idle</span>
+          </div>
+
+          <div class="scanner__actions">
+            <button class="btn btn--primary" id="btnStartCam" type="button">Start Camera</button>
+            <button class="btn btn--danger" id="btnStopCam" type="button" disabled>Stop</button>
+          </div>
+
+          <div class="scanner__actions">
+            <label class="btn btn--ghost" style="display:flex;justify-content:center;gap:8px;align-items:center;">
+              Scan from Photo
+              <input id="scannerFile" type="file" accept="image/*" class="hidden" />
+            </label>
+          </div>
+        </main>
+
+        <canvas id="scannerCanvas" class="hidden"></canvas>
+      </section>
+
+      <!-- ===================== 3A. Returning Guest ===================== -->
+      <section class="screen" id="screen-returning" aria-label="Returning Guest">
+        <header class="topbar">
+          <div class="topbar__title">Returning Guest</div>
+          <div style="width:24px;"></div>
+        </header>
+        <main class="content">
+          <div class="card">
+            <div class="card__title" id="rg_name">John Doe</div>
+            <div class="card__row"><span>ID Type</span><span id="rg_type">DL</span></div>
+            <div class="card__row"><span>ID Number</span><span id="rg_id">X1234567</span></div>
+            <div class="card__row"><span>Rating</span><span>4.6</span></div>
+            <div class="card__row"><span>Active since</span><span>2023</span></div>
+            <div class="card__row"><span>Latest activity</span><span>Check-in</span></div>
+          </div>
+        </main>
+        <footer class="bottombar row2">
+          <button class="btn" type="button" data-nav="guest-registration">Cancel</button>
+          <button class="btn btn--primary" type="button" data-nav="stay-details">Proceed</button>
+        </footer>
+      </section>
+
+      <!-- ===================== 3B. New Guest ===================== -->
+      <section class="screen" id="screen-new-guest" aria-label="New Guest">
+        <header class="topbar">
+          <div class="topbar__title">New User</div>
+          <div style="width:24px;"></div>
+        </header>
+        <main class="content">
+          <div class="card">
+            <div class="card__title" id="ng_name">John Doe</div>
+            <div class="card__row"><span>ID Type</span><span id="ng_type">DL</span></div>
+            <div class="card__row"><span>ID Number</span><span id="ng_id">X1234567</span></div>
+          </div>
+        </main>
+        <footer class="bottombar row2">
+          <button class="btn" type="button" data-action="skip-save">Skip</button>
+          <button class="btn btn--primary" type="button" data-action="save-guest">Save</button>
+        </footer>
+      </section>
+
+      <!-- ===================== 4. Stay Details ===================== -->
+      <section class="screen" id="screen-stay-details" aria-label="Stay Details">
+        <header class="topbar">
+          <button class="iconbtn" type="button" aria-label="Close" data-action="cancel-flow">✕</button>
+          <div class="topbar__title topbar__title--center">Stay Details</div>
+          <div style="width:24px;"></div>
+        </header>
+
+        <main class="content form">
+          <div class="field">
+            <label for="checkIn">Check-in date</label>
+            <input id="checkIn" type="date" />
+            <div class="error" id="err_checkIn"></div>
+          </div>
+
+          <div class="field">
+            <label for="checkOut">Check-out date</label>
+            <input id="checkOut" type="date" />
+            <div class="error" id="err_checkOut"></div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="adults">Adults</label>
+              <select id="adults">
+                <option>1</option><option>2</option><option>3</option><option>4</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="children">Children</label>
+              <select id="children">
+                <option>0</option><option>1</option><option>2</option><option>3</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="room">Select Room</label>
+            <select id="room">
+              <option value="Standard">Standard</option>
+              <option value="Deluxe">Deluxe</option>
+              <option value="Suite">Suite</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="rate">Daily Rate</label>
+            <select id="rate">
+              <option value="120">$120</option>
+              <option value="160">$160</option>
+              <option value="210">$210</option>
+            </select>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="deposit">Deposit</label>
+              <input id="deposit" type="number" inputmode="decimal" min="0" value="0" />
+            </div>
+            <div class="field">
+              <label for="discount">Discount</label>
+              <input id="discount" type="number" inputmode="decimal" min="0" value="0" />
+            </div>
+          </div>
+        </main>
+
+        <footer class="bottombar">
+          <button class="btn btn--primary" type="button" id="btnStayNext">Next</button>
+        </footer>
+      </section>
+
+      <!-- ===================== 5. Booking Summary ===================== -->
+      <section class="screen" id="screen-booking-summary" aria-label="Booking Summary">
+        <header class="topbar">
+          <button class="iconbtn" type="button" aria-label="Back" data-nav="stay-details">←</button>
+          <div class="topbar__title topbar__title--center">Booking Summary</div>
+          <button class="iconbtn" type="button" aria-label="Close" data-action="cancel-flow">✕</button>
+        </header>
+
+        <main class="content">
+          <div class="card" id="summaryCard"></div>
+          <div class="card card--total" id="totalCard"></div>
+
+          <div class="row2" style="margin-top:16px;">
+            <button class="btn" type="button" data-nav="cash-payment">Cash</button>
+            <button class="btn" type="button" data-nav="card-payment">Card</button>
+          </div>
+        </main>
+      </section>
+
+      <!-- ===================== 6A. Card Payment ===================== -->
+      <section class="screen" id="screen-card-payment" aria-label="Card Payment">
+        <header class="topbar">
+          <button class="iconbtn" type="button" aria-label="Back" data-nav="booking-summary">←</button>
+          <div class="topbar__title topbar__title--center">Card Payment</div>
+          <button class="iconbtn" type="button" aria-label="Close" data-action="cancel-flow">✕</button>
+        </header>
+
+        <main class="content form">
+          <div class="card card--total" id="cardTotal"></div>
+
+          <button class="btn btn--primary" type="button" data-nav="tap-to-pay">Tap to Pay</button>
+
+          <div class="field">
+            <label>Card number</label>
+            <input id="cc_number" inputmode="numeric" placeholder="1234 5678 9012 3456" />
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>Expiry</label>
+              <input id="cc_exp" placeholder="MM/YY" />
+            </div>
+            <div class="field">
+              <label>CVV</label>
+              <input id="cc_cvv" inputmode="numeric" placeholder="123" />
+            </div>
+          </div>
+          <div class="field">
+            <label>Name</label>
+            <input id="cc_name" placeholder="Name on card" />
+          </div>
+          <div class="field">
+            <label>ZIP</label>
+            <input id="cc_zip" inputmode="numeric" placeholder="12345" maxlength="5" />
+          </div>
+        </main>
+
+        <footer class="bottombar">
+          <button class="btn btn--primary" type="button" id="btnProceedCard">Proceed to Pay</button>
+        </footer>
+      </section>
+
+      <!-- ===================== 6B. Cash Confirm ===================== -->
+      <section class="screen" id="screen-cash-payment" aria-label="Cash Payment">
+        <header class="topbar">
+          <button class="iconbtn" type="button" aria-label="Back" data-nav="booking-summary">←</button>
+          <div class="topbar__title topbar__title--center">Cash Payment</div>
+          <button class="iconbtn" type="button" aria-label="Close" data-action="cancel-flow">✕</button>
+        </header>
+
+        <main class="content center">
+          <div class="hero">Record Cash Payment</div>
+          <div class="card card--total" id="cashTotal"></div>
+        </main>
+
+        <footer class="bottombar">
+          <button class="btn btn--primary" type="button" id="btnCashYes">Yes</button>
+        </footer>
+      </section>
+
+      <!-- ===================== 7. Tap to Pay ===================== -->
+      <section class="screen" id="screen-tap-to-pay" aria-label="Tap to Pay">
+        <header class="topbar">
+          <button class="iconbtn" type="button" aria-label="Close" data-nav="card-payment">✕</button>
+          <div class="topbar__title topbar__title--center">Tap to Pay</div>
+          <div style="width:24px;"></div>
+        </header>
+
+        <main class="content center">
+          <div class="hero">NFC Ready</div>
+          <div class="card" id="tapSummary"></div>
+          <div class="card card--total" id="tapTotal"></div>
+
+          <!-- NFC event simulated by button here (since web NFC payments aren't available in browser) -->
+          <button class="btn btn--primary" type="button" id="btnSimulateTap">Simulate Tap</button>
+        </main>
+      </section>
+
+      <!-- ===================== 8. Processing ===================== -->
+      <section class="screen" id="screen-processing" aria-label="Processing">
+        <main class="content center">
+          <div class="spinner"></div>
+          <div class="hero">Payment Processing…</div>
+        </main>
+      </section>
+
+      <!-- ===================== 9A. Card Success ===================== -->
+      <section class="screen" id="screen-card-success" aria-label="Card Success">
+        <main class="content center">
+          <div class="hero hero--success">Payment Successful</div>
+          <div class="card" id="cardSuccessDetails"></div>
+          <button class="btn btn--primary" type="button" data-nav="receipt-printed">Print Receipt</button>
+        </main>
+      </section>
+
+      <!-- ===================== 9B. Cash Success ===================== -->
+      <section class="screen" id="screen-cash-success" aria-label="Cash Success">
+        <main class="content center">
+          <div class="hero hero--success">Payment Successful</div>
+          <div class="card" id="cashSuccessDetails"></div>
+          <button class="btn btn--primary" type="button" data-nav="receipt-printed">Print Receipt</button>
+        </main>
+      </section>
+
+      <!-- ===================== 9C. Declined ===================== -->
+      <section class="screen" id="screen-declined" aria-label="Declined">
+        <main class="content center">
+          <div class="hero hero--danger">Payment Declined</div>
+          <div class="card" id="declineDetails"></div>
+          <div class="row2" style="width:100%;max-width:320px;">
+            <button class="btn btn--disabled" disabled>Retry</button>
+            <button class="btn" type="button" data-nav="booking-summary">Change Method</button>
+          </div>
+        </main>
+      </section>
+
+      <!-- ===================== 10. Receipt Printed ===================== -->
+      <section class="screen" id="screen-receipt-printed" aria-label="Receipt Printed">
+        <main class="content center">
+          <div class="hero">Receipt Printed</div>
+          <div class="row2" style="width:100%;max-width:320px;">
+            <button class="btn btn--disabled" disabled>Share</button>
+            <button class="btn btn--primary" type="button" data-nav="dashboard">Done</button>
+          </div>
+        </main>
+      </section>
+
+      <!-- Snackbar -->
+      <div id="snackbar" class="snackbar" role="status" aria-live="polite">
+        <div class="snackbar__text" id="snackbarText"></div>
+        <button class="snackbar__close" id="snackbarClose" aria-label="Dismiss">✕</button>
       </div>
-    </header>
+    </div>
+  </div>
 
-    <main>
-      <p class="greeting">Good Afternoon, John Doe.</p>
-
-      <div class="tile primary" data-nav="guest-registration">Check-In</div>
-      <div class="tile disabled">Check-Out</div>
-      <div class="tile disabled">Stay-Over</div>
-
-      <div class="divider"><span>Other</span></div>
-
-      <div class="grid-2">
-        <div class="tile">Dashboard</div>
-        <div class="tile">Bookings</div>
-        <div class="tile">Reports</div>
-        <div class="tile">Payments</div>
-      </div>
-    </main>
-
-    <footer>Version 1.0</footer>
-  </section>
-
-  <!-- ================= GUEST REGISTRATION ================= -->
-  <section class="screen" id="screen-guest-registration">
-    <header class="appbar">
-      <button data-nav="dashboard">←</button>
-      <h2>Guest Registration</h2>
-      <button data-nav="scanner">📷</button>
-    </header>
-
-    <main class="form">
-      <label>Full Name*
-        <input id="fullName" />
-      </label>
-
-      <label>Street Address*
-        <input id="street" />
-      </label>
-
-      <label>City*
-        <input id="city" />
-      </label>
-
-      <div class="row">
-        <label>State*
-          <select id="state"></select>
-        </label>
-
-        <label>Zip*
-          <input id="zip" maxlength="5"/>
-        </label>
-      </div>
-
-      <div class="row">
-        <label>Gender*
-          <select id="gender">
-            <option value="">Select</option>
-            <option>Male</option>
-            <option>Female</option>
-            <option>Other</option>
-          </select>
-        </label>
-
-        <label>Age*
-          <input id="age" type="number" />
-        </label>
-      </div>
-
-      <label>Type of Identification
-        <select id="idType">
-          <option value="">Select</option>
-          <option>DL</option>
-          <option>ID</option>
-        </select>
-      </label>
-
-      <label>Identification Number*
-        <input id="idNumber"/>
-      </label>
-    </main>
-
-    <footer>
-      <button class="primary" id="guestNextBtn">Next</button>
-    </footer>
-  </section>
-
-  <!-- ================= SCANNER ================= -->
-  <section class="screen" id="screen-scanner">
-    <header class="appbar">
-      <button data-nav="guest-registration">✕</button>
-      <h2>Scanner</h2>
-      <button id="torchBtn">🔦</button>
-    </header>
-
-    <main>
-      <video id="video" playsinline muted></video>
-      <div class="scanner-frame"></div>
-    </main>
-  </section>
-
-  <!-- ================= STAY DETAILS ================= -->
-  <section class="screen" id="screen-stay">
-    <header class="appbar">
-      <button data-nav="dashboard">✕</button>
-      <h2>Stay Details</h2>
-    </header>
-
-    <main class="form">
-      <label>Check-In <input type="date" id="checkIn"></label>
-      <label>Check-Out <input type="date" id="checkOut"></label>
-      <label>Adults <input type="number" value="1"></label>
-      <label>Children <input type="number" value="0"></label>
-      <label>Room <select><option>Standard</option></select></label>
-      <label>Daily Rate <input type="number" value="120"></label>
-      <label>Deposit <input type="number" value="50"></label>
-      <label>Discount <input type="number" value="0"></label>
-    </main>
-
-    <footer>
-      <button class="primary" data-nav="summary">Next</button>
-    </footer>
-  </section>
-
-  <!-- ================= BOOKING SUMMARY ================= -->
-  <section class="screen" id="screen-summary">
-    <header class="appbar">
-      <button data-nav="stay">←</button>
-      <h2>Booking Summary</h2>
-      <button data-nav="dashboard">✕</button>
-    </header>
-
-    <main>
-      <div class="card">Booking Summary Details</div>
-      <div class="card total">Total: $200</div>
-    </main>
-
-    <footer class="row">
-      <button data-nav="cash">Cash</button>
-      <button data-nav="card">Card</button>
-    </footer>
-  </section>
-
-  <!-- ================= CARD PAYMENT ================= -->
-  <section class="screen" id="screen-card">
-    <header class="appbar">
-      <button data-nav="summary">←</button>
-      <h2>Card Payment</h2>
-    </header>
-
-    <main class="form">
-      <button class="primary" data-nav="tap">Tap to Pay</button>
-      <label>Card Number <input></label>
-      <label>Expiry <input></label>
-      <label>CVV <input></label>
-      <label>Name <input></label>
-      <label>ZIP <input></label>
-    </main>
-
-    <footer>
-      <button class="primary" data-nav="processing">Proceed to Pay</button>
-    </footer>
-  </section>
-
-  <!-- ================= TAP TO PAY ================= -->
-  <section class="screen center" id="screen-tap">
-    <button data-nav="card" class="close">✕</button>
-    <h2>Tap to Pay</h2>
-    <p>Hold card near reader</p>
-    <button class="primary" data-nav="processing">Simulate Tap</button>
-  </section>
-
-  <!-- ================= PROCESSING ================= -->
-  <section class="screen center" id="screen-processing">
-    <h2>Payment Processing...</h2>
-  </section>
-
-  <!-- ================= SUCCESS ================= -->
-  <section class="screen center success" id="screen-success">
-    <h2>Payment Successful</h2>
-    <button data-nav="receipt">Print Receipt</button>
-  </section>
-
-  <!-- ================= DECLINED ================= -->
-  <section class="screen center error" id="screen-declined">
-    <h2>Payment Declined</h2>
-    <button data-nav="summary">Change Method</button>
-  </section>
-
-  <!-- ================= RECEIPT ================= -->
-  <section class="screen center" id="screen-receipt">
-    <h2>Receipt Printed</h2>
-    <button data-nav="dashboard">Done</button>
-  </section>
-
-</div>
-
-<div id="snackbar"></div>
-
-<script type="module" src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
