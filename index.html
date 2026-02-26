@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hotel Operations App</title>
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ================= DASHBOARD ================= -->
+  <section class="screen active" id="screen-dashboard">
+    <header class="appbar">
+      <h1>Example XYZ Hotels</h1>
+      <div class="actions">
+        <button id="profileBtn">👤</button>
+        <button id="logoutBtn">⎋</button>
+      </div>
+    </header>
+
+    <main>
+      <p class="greeting">Good Afternoon, John Doe.</p>
+
+      <div class="tile primary" data-nav="guest-registration">Check-In</div>
+      <div class="tile disabled">Check-Out</div>
+      <div class="tile disabled">Stay-Over</div>
+
+      <div class="divider"><span>Other</span></div>
+
+      <div class="grid-2">
+        <div class="tile">Dashboard</div>
+        <div class="tile">Bookings</div>
+        <div class="tile">Reports</div>
+        <div class="tile">Payments</div>
+      </div>
+    </main>
+
+    <footer>Version 1.0</footer>
+  </section>
+
+  <!-- ================= GUEST REGISTRATION ================= -->
+  <section class="screen" id="screen-guest-registration">
+    <header class="appbar">
+      <button data-nav="dashboard">←</button>
+      <h2>Guest Registration</h2>
+      <button data-nav="scanner">📷</button>
+    </header>
+
+    <main class="form">
+      <label>Full Name*
+        <input id="fullName" />
+      </label>
+
+      <label>Street Address*
+        <input id="street" />
+      </label>
+
+      <label>City*
+        <input id="city" />
+      </label>
+
+      <div class="row">
+        <label>State*
+          <select id="state"></select>
+        </label>
+
+        <label>Zip*
+          <input id="zip" maxlength="5"/>
+        </label>
+      </div>
+
+      <div class="row">
+        <label>Gender*
+          <select id="gender">
+            <option value="">Select</option>
+            <option>Male</option>
+            <option>Female</option>
+            <option>Other</option>
+          </select>
+        </label>
+
+        <label>Age*
+          <input id="age" type="number" />
+        </label>
+      </div>
+
+      <label>Type of Identification
+        <select id="idType">
+          <option value="">Select</option>
+          <option>DL</option>
+          <option>ID</option>
+        </select>
+      </label>
+
+      <label>Identification Number*
+        <input id="idNumber"/>
+      </label>
+    </main>
+
+    <footer>
+      <button class="primary" id="guestNextBtn">Next</button>
+    </footer>
+  </section>
+
+  <!-- ================= SCANNER ================= -->
+  <section class="screen" id="screen-scanner">
+    <header class="appbar">
+      <button data-nav="guest-registration">✕</button>
+      <h2>Scanner</h2>
+      <button id="torchBtn">🔦</button>
+    </header>
+
+    <main>
+      <video id="video" playsinline muted></video>
+      <div class="scanner-frame"></div>
+    </main>
+  </section>
+
+  <!-- ================= STAY DETAILS ================= -->
+  <section class="screen" id="screen-stay">
+    <header class="appbar">
+      <button data-nav="dashboard">✕</button>
+      <h2>Stay Details</h2>
+    </header>
+
+    <main class="form">
+      <label>Check-In <input type="date" id="checkIn"></label>
+      <label>Check-Out <input type="date" id="checkOut"></label>
+      <label>Adults <input type="number" value="1"></label>
+      <label>Children <input type="number" value="0"></label>
+      <label>Room <select><option>Standard</option></select></label>
+      <label>Daily Rate <input type="number" value="120"></label>
+      <label>Deposit <input type="number" value="50"></label>
+      <label>Discount <input type="number" value="0"></label>
+    </main>
+
+    <footer>
+      <button class="primary" data-nav="summary">Next</button>
+    </footer>
+  </section>
+
+  <!-- ================= BOOKING SUMMARY ================= -->
+  <section class="screen" id="screen-summary">
+    <header class="appbar">
+      <button data-nav="stay">←</button>
+      <h2>Booking Summary</h2>
+      <button data-nav="dashboard">✕</button>
+    </header>
+
+    <main>
+      <div class="card">Booking Summary Details</div>
+      <div class="card total">Total: $200</div>
+    </main>
+
+    <footer class="row">
+      <button data-nav="cash">Cash</button>
+      <button data-nav="card">Card</button>
+    </footer>
+  </section>
+
+  <!-- ================= CARD PAYMENT ================= -->
+  <section class="screen" id="screen-card">
+    <header class="appbar">
+      <button data-nav="summary">←</button>
+      <h2>Card Payment</h2>
+    </header>
+
+    <main class="form">
+      <button class="primary" data-nav="tap">Tap to Pay</button>
+      <label>Card Number <input></label>
+      <label>Expiry <input></label>
+      <label>CVV <input></label>
+      <label>Name <input></label>
+      <label>ZIP <input></label>
+    </main>
+
+    <footer>
+      <button class="primary" data-nav="processing">Proceed to Pay</button>
+    </footer>
+  </section>
+
+  <!-- ================= TAP TO PAY ================= -->
+  <section class="screen center" id="screen-tap">
+    <button data-nav="card" class="close">✕</button>
+    <h2>Tap to Pay</h2>
+    <p>Hold card near reader</p>
+    <button class="primary" data-nav="processing">Simulate Tap</button>
+  </section>
+
+  <!-- ================= PROCESSING ================= -->
+  <section class="screen center" id="screen-processing">
+    <h2>Payment Processing...</h2>
+  </section>
+
+  <!-- ================= SUCCESS ================= -->
+  <section class="screen center success" id="screen-success">
+    <h2>Payment Successful</h2>
+    <button data-nav="receipt">Print Receipt</button>
+  </section>
+
+  <!-- ================= DECLINED ================= -->
+  <section class="screen center error" id="screen-declined">
+    <h2>Payment Declined</h2>
+    <button data-nav="summary">Change Method</button>
+  </section>
+
+  <!-- ================= RECEIPT ================= -->
+  <section class="screen center" id="screen-receipt">
+    <h2>Receipt Printed</h2>
+    <button data-nav="dashboard">Done</button>
+  </section>
+
+</div>
+
+<div id="snackbar"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
