@@ -10,7 +10,6 @@ const ICONS = {
   back: svgIcon(`<path d="M15 18l-6-6 6-6"></path>`),
   close: svgIcon(`<path d="M18 6L6 18"></path><path d="M6 6l12 12"></path>`),
   scan: svgIcon(`<path d="M7 7h3V4H6a2 2 0 0 0-2 2v4h3V7Zm10 0v3h3V6a2 2 0 0 0-2-2h-4v3h3Zm0 10h3v3h-3v3h4a2 2 0 0 0 2-2v-4h-3v3Zm-10 3v-3H4v4a2 2 0 0 0 2 2h4v-3H7Z"></path><path d="M7 12h10"></path>`),
-  chevronDown: svgIcon(`<path d="M6 9l6 6 6-6"></path>`)
 };
 
 function svgIcon(paths) {
@@ -23,19 +22,16 @@ function svgIcon(paths) {
 
 /* ----------------------- Snackbars & Modal ----------------------- */
 const snackbarHost = $("#snackbarHost");
-function showSnackbar(message, kind = "info", timeoutMs = 3500) {
+function showSnackbar(message, timeoutMs = 3500) {
   const el = document.createElement("div");
   el.className = "snackbar";
   el.innerHTML = `
     <div class="msg">${escapeHtml(message)}</div>
     <button class="x" aria-label="Dismiss">×</button>
   `;
-  const x = $(".x", el);
-  x.addEventListener("click", () => el.remove());
+  $(".x", el).addEventListener("click", () => el.remove());
   snackbarHost.appendChild(el);
-
-  const t = setTimeout(() => el.remove(), timeoutMs);
-  el.addEventListener("remove", () => clearTimeout(t));
+  setTimeout(() => el.remove(), timeoutMs);
 }
 
 const modalHost = $("#modalHost");
@@ -62,8 +58,10 @@ function confirmModal({ title = "Confirm", body = "Are you sure?", okText = "OK"
       const act = e.target?.dataset?.action;
       if (act === "closeModal") close(false);
     };
+
     const onCancel = () => close(false);
     const onOk = () => close(true);
+    const onEsc = (e) => { if (e.key === "Escape") close(false); };
 
     const cleanup = () => {
       modalHost.removeEventListener("click", onBackdrop);
@@ -71,8 +69,6 @@ function confirmModal({ title = "Confirm", body = "Are you sure?", okText = "OK"
       modalOk.removeEventListener("click", onOk);
       document.removeEventListener("keydown", onEsc);
     };
-
-    const onEsc = (e) => { if (e.key === "Escape") close(false); };
 
     modalHost.addEventListener("click", onBackdrop);
     $("#modalCancel").addEventListener("click", onCancel);
@@ -112,17 +108,10 @@ const ROOMS = [
   { id: "310", name: "Room 310 (Suite)", maxAdults: 4, maxChildren: 2, rates: [219, 239, 259] },
 ];
 
-const RATE_PLANS = [
-  { id: "standard", label: "Standard" },
-  { id: "flex", label: "Flexible" },
-  { id: "member", label: "Member" },
-];
-
 const appState = {
   screen: SCREENS.DASHBOARD,
   user: { name: "John Doe", hotel: "Example XYZ Hotels", version: "Version 1.0" },
 
-  // guest form / results
   guestForm: {
     fullName: "",
     streetAddress: "",
@@ -131,17 +120,17 @@ const appState = {
     zip: "",
     gender: "",
     age: "",
-    dob: "", // internal store (recommended)
-    idType: "", // DL/ID
+    dob: "",
+    idType: "",
     idNumber: "",
     rawAamva: "",
+    scanHints: { stateInvalid: "" }, // used to show inline scan-mismatch errors after returning to form
   },
 
   guestLookup: {
     found: false,
     guestId: null,
-    profile: null, // {guestId, fullName, idType, idNumber, rating, activeSince, latestActivity}
-    pendingFromScan: null, // info from scan to display on new/returning screens
+    profile: null,
   },
 
   stay: {
@@ -150,7 +139,6 @@ const appState = {
     adults: "1",
     children: "0",
     roomId: "101",
-    ratePlanId: "standard",
     dailyRate: "119",
     deposit: "0",
     discount: "0",
@@ -163,13 +151,12 @@ const appState = {
   },
 
   payment: {
-    method: null, // "cash" | "card"
+    method: null,
     card: { number: "", expiry: "", cvv: "", name: "", zip: "" },
     txn: { type: "", id: "" },
-    lastOutcome: null, // "success" | "declined"
+    lastOutcome: null,
   },
 
-  // scanner
   scanner: {
     stream: null,
     stopLoop: false,
@@ -180,11 +167,10 @@ const appState = {
     lastAt: 0,
     engineName: "…",
     cameraState: "idle",
-    torchAvailable: false,
   }
 };
 
-// simple local “DB”
+/* ----------------------- Local DB ----------------------- */
 const DB_KEY = "kiosk_guests_v1";
 function loadGuests() {
   try { return JSON.parse(localStorage.getItem(DB_KEY) || "[]"); }
@@ -195,15 +181,7 @@ function seedGuestsIfEmpty() {
   const list = loadGuests();
   if (list.length) return;
   saveGuests([
-    {
-      guestId: "G-10001",
-      fullName: "Jane Sample",
-      idType: "DL",
-      idNumber: "S1234567",
-      rating: "A",
-      activeSince: "2022-04-18",
-      latestActivity: "2025-11-02",
-    }
+    { guestId: "G-10001", fullName: "Jane Sample", idType: "DL", idNumber: "S1234567", rating: "A", activeSince: "2022-04-18", latestActivity: "2025-11-02" }
   ]);
 }
 seedGuestsIfEmpty();
@@ -222,6 +200,11 @@ function render() {
   phone.className = "phone";
   phone.appendChild(renderScreen());
   appRoot.appendChild(phone);
+
+  // show scan mismatch hint if needed (after render)
+  if (appState.screen === SCREENS.GUEST_REG && appState.guestForm.scanHints.stateInvalid) {
+    setInlineError("state", appState.guestForm.scanHints.stateInvalid);
+  }
 }
 
 function renderScreen() {
@@ -245,28 +228,24 @@ function renderScreen() {
   }
 }
 
-/* ----------------------- Screen components ----------------------- */
+/* ----------------------- UI helpers ----------------------- */
 function TopBar({ left = null, title = "", right = null }) {
   const el = div("topbar");
   const l = div("topbar-left");
   const t = div("topbar-title");
   const r = div("topbar-right");
   t.textContent = title;
-
   if (left) l.append(...[].concat(left));
   if (right) r.append(...[].concat(right));
-
   el.append(l, t, r);
   return el;
 }
-
 function BottomBar(children) {
   const el = div("bottombar");
   el.append(...[].concat(children));
   return el;
 }
-
-function ProgressBar(stepIndex /* 0..3 */) {
+function ProgressBar(stepIndex) {
   const p = div("progress");
   for (let i = 0; i < 4; i++) {
     const seg = document.createElement("div");
@@ -275,44 +254,46 @@ function ProgressBar(stepIndex /* 0..3 */) {
   }
   return p;
 }
+function button(text, className, onClick) {
+  const b = document.createElement("button");
+  b.className = className;
+  b.textContent = text;
+  b.addEventListener("click", onClick);
+  return b;
+}
+function iconButton(svg, aria, onClick) {
+  const b = document.createElement("button");
+  b.className = "icon-btn";
+  b.setAttribute("aria-label", aria);
+  b.innerHTML = typeof svg === "string" ? svg : String(svg);
+  b.addEventListener("click", onClick);
+  return b;
+}
+function div(cls) { const d = document.createElement("div"); d.className = cls; return d; }
+function divText(cls, txt) { const d = div(cls); d.textContent = txt; return d; }
+function elP(cls, txt) { const p = document.createElement("div"); p.className = cls; p.textContent = txt; return p; }
 
+/* ----------------------- Screens ----------------------- */
 /* 0) Dashboard */
 function Dashboard() {
   const wrap = document.createElement("div");
 
-  const accountBtn = iconButton(ICONS.account, "Profile (not implemented)", () => {
-    showSnackbar("Profile module not included in this flow.");
-  });
+  const accountBtn = iconButton(ICONS.account, "Profile (not implemented)", () => showSnackbar("Profile module not included in this flow."));
   const logoutBtn = iconButton(ICONS.logout, "Logout", async () => {
-    const ok = await confirmModal({
-      title: "Logout",
-      body: "Log out and exit to login?",
-      okText: "Logout"
-    });
+    const ok = await confirmModal({ title: "Logout", body: "Log out and exit to login?", okText: "Logout" });
     if (ok) showSnackbar("Logged out (demo).");
   });
 
-  wrap.appendChild(
-    TopBar({
-      title: appState.user.hotel,
-      right: [accountBtn, logoutBtn],
-    })
-  );
+  wrap.appendChild(TopBar({ title: appState.user.hotel, right: [accountBtn, logoutBtn] }));
 
   const content = div("content");
-
   content.appendChild(elP("greeting", `Good Afternoon, ${appState.user.name}.`));
 
-  const checkIn = tile("Check-In", "primary", () => {
-    // reset form for new flow but keep any stored values minimal
-    resetFlow();
-    navigate(SCREENS.GUEST_REG);
-  });
-
-  const checkOut = tile("Check-Out", "disabled", () => showSnackbar("Check-Out is disabled in this demo."));
-  const stayOver = tile("Stay-Over", "disabled", () => showSnackbar("Stay-Over is disabled in this demo."));
-
-  content.append(checkIn, checkOut, stayOver);
+  content.append(
+    tile("Check-In", "primary", () => { resetFlow(); navigate(SCREENS.GUEST_REG); }),
+    tile("Check-Out", "disabled", () => showSnackbar("Check-Out is disabled in this demo.")),
+    tile("Stay-Over", "disabled", () => showSnackbar("Stay-Over is disabled in this demo."))
+  );
 
   content.appendChild(hrOther());
 
@@ -337,7 +318,6 @@ function Dashboard() {
 /* 1) Guest Registration */
 function GuestRegistration() {
   const wrap = document.createElement("div");
-
   const backBtn = iconButton(ICONS.back, "Back", () => navigate(SCREENS.DASHBOARD));
   const scanBtn = iconButton(ICONS.scan, "Scan ID", () => navigate(SCREENS.SCANNER));
 
@@ -350,13 +330,11 @@ function GuestRegistration() {
 
   const nextBtn = button("Next", "btn btn-primary", onGuestNext);
   wrap.appendChild(BottomBar(nextBtn));
-
   return wrap;
 }
 
 function GuestForm() {
   const form = div("form");
-
   form.append(
     inputField("Full Name*", "fullName", "Enter Full Name"),
     inputField("Street Address*", "streetAddress", "Enter Street Address"),
@@ -372,25 +350,48 @@ function GuestForm() {
     selectField("Type of Identification", "idType", ["", "DL", "ID"], "Select"),
     inputField("Identification Number*", "idNumber", "0000000000")
   );
-
   return form;
 }
 
+/**
+ * UPDATED: Next now triggers lookup and routes to Returning/New guest screens.
+ * (Scanner no longer routes there automatically.)
+ */
 async function onGuestNext() {
   const errors = validateGuestForm(appState.guestForm);
   clearInlineErrors();
+
+  // keep scan mismatch error if present
+  if (appState.guestForm.scanHints.stateInvalid) {
+    setInlineError("state", appState.guestForm.scanHints.stateInvalid);
+  }
 
   if (Object.keys(errors).length) {
     Object.entries(errors).forEach(([k, msg]) => setInlineError(k, msg));
     showSnackbar("Please Complete All the Required Fields."); // 12
     return;
   }
-  navigate(SCREENS.STAY_DETAILS);
+
+  // lookup by idType+idNumber; if idType not set, lookup by idNumber only
+  const lookup = lookupGuest(appState.guestForm.idType, appState.guestForm.idNumber);
+
+  if (lookup.found) {
+    appState.guestLookup.found = true;
+    appState.guestLookup.guestId = lookup.profile.guestId;
+    appState.guestLookup.profile = lookup.profile;
+    navigate(SCREENS.RETURNING);
+  } else {
+    appState.guestLookup.found = false;
+    appState.guestLookup.guestId = null;
+    appState.guestLookup.profile = null;
+    navigate(SCREENS.NEW_GUEST);
+  }
 }
 
 /* 2) Scanner */
 function ScannerScreen() {
   const wrap = document.createElement("div");
+
   const closeBtn = iconButton(ICONS.close, "Close", async () => {
     await stopScanner();
     navigate(SCREENS.GUEST_REG);
@@ -399,9 +400,6 @@ function ScannerScreen() {
   const torchBtn = iconButton(`<span style="font-size:14px;font-weight:800;">⚡</span>`, "Toggle Torch", async () => {
     await toggleTorch();
   });
-  torchBtn.classList.add("icon-btn");
-  torchBtn.style.width = "24px";
-  torchBtn.style.height = "24px";
 
   wrap.appendChild(TopBar({ left: closeBtn, title: "Scanner", right: torchBtn }));
 
@@ -417,8 +415,7 @@ function ScannerScreen() {
   video.muted = true;
 
   const hud = div("hud");
-  const frame = div("frame");
-  hud.appendChild(frame);
+  hud.appendChild(div("frame"));
 
   viewer.append(video, hud);
   viewerCard.appendChild(viewer);
@@ -472,8 +469,8 @@ function ScannerScreen() {
   controls.append(startBtn, stopBtn, photoLabel, tip);
 
   content.append(viewerCard, controls);
+  wrap.appendChild(content);
 
-  // wire photo input after render
   setTimeout(() => {
     const file = $("#scanFile");
     if (file) {
@@ -492,14 +489,12 @@ function ScannerScreen() {
     }
   }, 0);
 
-  wrap.appendChild(content);
   return wrap;
 }
 
 /* 3A) Returning Guest */
 function ReturningGuest() {
   const wrap = document.createElement("div");
-
   const closeBtn = iconButton(ICONS.close, "Cancel", () => navigate(SCREENS.GUEST_REG));
   wrap.appendChild(TopBar({ left: closeBtn, title: "Returning Guest", right: null }));
 
@@ -515,17 +510,14 @@ function ReturningGuest() {
     <div class="summary-row"><b>Latest activity</b><span>${escapeHtml(p.latestActivity || "—")}</span></div>
   `;
 
-  content.append(card);
-
   const actions = div("actions-row");
-  const cancel = button("Cancel", "btn", () => navigate(SCREENS.GUEST_REG));
-  const proceed = button("Proceed", "btn btn-primary", () => {
-    navigate(SCREENS.STAY_DETAILS);
-  });
-  actions.append(cancel, proceed);
-  content.append(actions);
+  actions.append(
+    button("Cancel", "btn", () => navigate(SCREENS.GUEST_REG)),
+    button("Proceed", "btn btn-primary", () => navigate(SCREENS.STAY_DETAILS))
+  );
 
-  wrap.append(content);
+  content.append(card, actions);
+  wrap.appendChild(content);
   return wrap;
 }
 
@@ -536,8 +528,8 @@ function NewGuest() {
   wrap.appendChild(TopBar({ left: closeBtn, title: "New User", right: null }));
 
   const content = div("content");
+  const g = appState.guestForm;
 
-  const g = appState.guestLookup.pendingFromScan || appState.guestForm;
   const hero = div("card");
   hero.innerHTML = `
     <div class="state">
@@ -547,21 +539,20 @@ function NewGuest() {
     <div class="summary-row"><b>Full name</b><span>${escapeHtml(g.fullName || "—")}</span></div>
     <div class="summary-row"><b>ID</b><span>${escapeHtml(`${g.idType || "—"} ${g.idNumber || "—"}`)}</span></div>
   `;
-  content.append(hero);
 
   const actions = div("actions-row");
   const skip = button("Skip", "btn", () => {
-    // proceed without saving
     appState.guestLookup.guestId = null;
     navigate(SCREENS.STAY_DETAILS);
   });
+
   const save = button("Save", "btn btn-primary", () => {
     const guests = loadGuests();
     const guestId = `G-${Math.floor(10000 + Math.random() * 89999)}`;
     guests.push({
       guestId,
       fullName: appState.guestForm.fullName,
-      idType: appState.guestForm.idType || "DL",
+      idType: (appState.guestForm.idType || "DL"),
       idNumber: appState.guestForm.idNumber,
       rating: "B",
       activeSince: todayISO(),
@@ -574,9 +565,8 @@ function NewGuest() {
   });
 
   actions.append(skip, save);
-  content.append(actions);
-
-  wrap.append(content);
+  content.append(hero, actions);
+  wrap.appendChild(content);
   return wrap;
 }
 
@@ -585,10 +575,7 @@ function StayDetails() {
   const wrap = document.createElement("div");
   const closeBtn = iconButton(ICONS.close, "Close", async () => {
     const ok = await confirmModal({ title: "Discard check-in?", body: "Discard this check-in flow?", okText: "Discard" });
-    if (ok) {
-      resetFlow();
-      navigate(SCREENS.DASHBOARD);
-    }
+    if (ok) { resetFlow(); navigate(SCREENS.DASHBOARD); }
   });
   wrap.appendChild(TopBar({ left: closeBtn, title: "Stay Details", right: null }));
   wrap.appendChild(ProgressBar(1));
@@ -603,14 +590,11 @@ function StayDetails() {
       selectStayField("Adults", "adults", ["1","2","3","4"]),
       selectStayField("Children", "children", ["0","1","2","3","4"])
     ),
-    selectStayField("Select Room", "roomId", ROOMS.map(r => r.id), null, (val)=> roomLabelById(val)),
+    selectStayField("Select Room", "roomId", ROOMS.map(r => r.id), null, roomLabelById),
     selectStayField("Daily Rate", "dailyRate", dailyRateOptionsForRoom(appState.stay.roomId), null, (v)=> `$${v}`),
     inputStayField("Deposit", "deposit", { inputmode: "decimal" }),
     inputStayField("Discount", "discount", { inputmode: "decimal" })
   );
-
-  content.append(form);
-  wrap.appendChild(content);
 
   const nextBtn = button("Next", "btn btn-primary", () => {
     const errs = validateStay(appState.stay);
@@ -624,6 +608,8 @@ function StayDetails() {
     navigate(SCREENS.BOOKING_SUMMARY);
   });
 
+  content.append(form);
+  wrap.appendChild(content);
   wrap.appendChild(BottomBar(nextBtn));
   return wrap;
 }
@@ -634,10 +620,7 @@ function BookingSummary() {
   const backBtn = iconButton(ICONS.back, "Back", () => navigate(SCREENS.STAY_DETAILS));
   const closeBtn = iconButton(ICONS.close, "Close", async () => {
     const ok = await confirmModal({ title: "Discard check-in?", body: "Discard this check-in flow?", okText: "Discard" });
-    if (ok) {
-      resetFlow();
-      navigate(SCREENS.DASHBOARD);
-    }
+    if (ok) { resetFlow(); navigate(SCREENS.DASHBOARD); }
   });
 
   wrap.appendChild(TopBar({ left: backBtn, title: "Booking Summary", right: closeBtn }));
@@ -667,38 +650,26 @@ function BookingSummary() {
   `;
 
   const totalCard = div("card");
-  totalCard.innerHTML = `
-    <div class="summary-row"><b>Total Amount</b><span><b>$${total.toFixed(2)}</b></span></div>
-  `;
+  totalCard.innerHTML = `<div class="summary-row"><b>Total Amount</b><span><b>$${total.toFixed(2)}</b></span></div>`;
 
-  content.append(summary, totalCard);
+  const actions = div("actions-row");
+  actions.append(
+    button("Cash", "btn", () => { appState.payment.method = "cash"; navigate(SCREENS.CASH_CONFIRM); }),
+    button("Confirm Card", "btn btn-primary", () => { appState.payment.method = "card"; navigate(SCREENS.CARD_DETAILS); })
+  );
 
-  const payActions = div("actions-row");
-  const cashBtn = button("Cash", "btn", () => {
-    appState.payment.method = "cash";
-    navigate(SCREENS.CASH_CONFIRM);
-  });
-  const cardBtn = button("Confirm Card", "btn btn-primary", () => {
-    appState.payment.method = "card";
-    navigate(SCREENS.CARD_DETAILS);
-  });
-  payActions.append(cashBtn, cardBtn);
-  content.append(payActions);
-
-  wrap.append(content);
+  content.append(summary, totalCard, actions);
+  wrap.appendChild(content);
   return wrap;
 }
 
-/* 6A) Card payment details */
+/* 6A) Card details */
 function CardPaymentDetails() {
   const wrap = document.createElement("div");
   const backBtn = iconButton(ICONS.back, "Back", () => navigate(SCREENS.BOOKING_SUMMARY));
   const closeBtn = iconButton(ICONS.close, "Close", async () => {
     const ok = await confirmModal({ title: "Discard check-in?", body: "Discard this check-in flow?", okText: "Discard" });
-    if (ok) {
-      resetFlow();
-      navigate(SCREENS.DASHBOARD);
-    }
+    if (ok) { resetFlow(); navigate(SCREENS.DASHBOARD); }
   });
   wrap.appendChild(TopBar({ left: backBtn, title: "Card Payment", right: closeBtn }));
 
@@ -712,7 +683,6 @@ function CardPaymentDetails() {
   manual.innerHTML = `<div style="font-weight:800;margin-bottom:10px;">Manual Card Entry</div>`;
   const manualForm = div("form");
   manualForm.style.gap = "14px";
-
   manualForm.append(
     inputPayment("Card number", "number", "•••• •••• •••• ••••"),
     row(
@@ -725,7 +695,6 @@ function CardPaymentDetails() {
   manual.append(manualForm);
 
   const proceed = button("Proceed to Pay", "btn btn-primary", () => {
-    // if any manual field filled, require all
     const c = appState.payment.card;
     const any = [c.number, c.expiry, c.cvv, c.name, c.zip].some(v => (v || "").trim().length);
     clearInlineErrors();
@@ -744,15 +713,14 @@ function CardPaymentDetails() {
         return;
       }
     }
-    // go processing
+
     appState.payment.txn.type = any ? "Manual Card" : "NFC";
     navigate(SCREENS.PROCESSING);
-    startProcessingOutcome("card");
+    startProcessingOutcome();
   });
 
   content.append(totalCard, tapBtn, manual, proceed);
-
-  wrap.append(content);
+  wrap.appendChild(content);
   return wrap;
 }
 
@@ -762,10 +730,7 @@ function CashConfirm() {
   const backBtn = iconButton(ICONS.back, "Back", () => navigate(SCREENS.BOOKING_SUMMARY));
   const closeBtn = iconButton(ICONS.close, "Close", async () => {
     const ok = await confirmModal({ title: "Discard check-in?", body: "Discard this check-in flow?", okText: "Discard" });
-    if (ok) {
-      resetFlow();
-      navigate(SCREENS.DASHBOARD);
-    }
+    if (ok) { resetFlow(); navigate(SCREENS.DASHBOARD); }
   });
   wrap.appendChild(TopBar({ left: backBtn, title: "Cash Payment", right: closeBtn }));
 
@@ -777,28 +742,23 @@ function CashConfirm() {
       <div class="badge">Total: $${appState.booking.total.toFixed(2)}</div>
     </div>
   `;
-  const yes = button("Yes", "btn btn-primary", () => {
-    // record cash
+
+  content.append(hero, button("Yes", "btn btn-primary", () => {
     appState.payment.txn.type = "Cash";
     navigate(SCREENS.CASH_SUCCESS);
-  });
+  }));
 
-  content.append(hero, yes);
-  wrap.append(content);
+  wrap.appendChild(content);
   return wrap;
 }
 
-/* 7) Tap to Pay (NFC ready) */
+/* 7) Tap to Pay */
 function TapToPay() {
   const wrap = document.createElement("div");
-  const closeBtn = iconButton(ICONS.close, "Close", async () => {
-    // cancel NFC
-    navigate(SCREENS.CARD_DETAILS);
-  });
+  const closeBtn = iconButton(ICONS.close, "Close", () => navigate(SCREENS.CARD_DETAILS));
   wrap.appendChild(TopBar({ left: closeBtn, title: "Tap to Pay", right: null }));
 
   const content = div("content");
-
   const card1 = div("card");
   card1.innerHTML = `
     <div class="state">
@@ -806,27 +766,25 @@ function TapToPay() {
       <div class="badge">Hold card/phone near reader</div>
     </div>
   `;
-
   const card2 = div("card");
   card2.innerHTML = `
     <div class="summary-row"><b>Guest</b><span>${escapeHtml(appState.guestForm.fullName || "(Guest)")}</span></div>
     <div class="summary-row"><b>Room</b><span>${escapeHtml(roomLabelById(appState.stay.roomId))}</span></div>
     <div class="summary-row"><b>Total</b><span><b>$${appState.booking.total.toFixed(2)}</b></span></div>
   `;
-
   const simulate = button("Simulate Tap", "btn btn-primary", () => {
     appState.payment.txn.type = "NFC";
     navigate(SCREENS.PROCESSING);
-    startProcessingOutcome("card");
+    startProcessingOutcome();
   });
 
   const note = document.createElement("div");
   note.style.fontSize = "12px";
   note.style.color = "#666";
-  note.textContent = "Web browsers can’t access real NFC payment hardware here, so this demo includes a Simulate Tap button.";
+  note.textContent = "Browsers can’t access real NFC payment hardware here, so this demo includes Simulate Tap.";
 
   content.append(card1, card2, simulate, note);
-  wrap.append(content);
+  wrap.appendChild(content);
   return wrap;
 }
 
@@ -834,17 +792,11 @@ function TapToPay() {
 function PaymentProcessing() {
   const wrap = document.createElement("div");
   wrap.appendChild(TopBar({ left: null, title: "Payment Processing…", right: null }));
-
   const content = div("content");
   const card = div("card");
-  card.innerHTML = `
-    <div class="state">
-      <div class="big">Payment Processing…</div>
-      <div class="badge">Please wait</div>
-    </div>
-  `;
+  card.innerHTML = `<div class="state"><div class="big">Payment Processing…</div><div class="badge">Please wait</div></div>`;
   content.append(card);
-  wrap.append(content);
+  wrap.appendChild(content);
   return wrap;
 }
 
@@ -857,22 +809,14 @@ function CardSuccess() {
   const card = div("card");
   const bookingId = appState.booking.bookingId || "B-000000";
   card.innerHTML = `
-    <div class="state ok">
-      <div class="big">Success</div>
-      <div class="badge">Card Payment</div>
-    </div>
+    <div class="state ok"><div class="big">Success</div><div class="badge">Card Payment</div></div>
     <div class="summary-row"><b>Booking ID</b><span>${escapeHtml(bookingId)}</span></div>
     <div class="summary-row"><b>Transaction type</b><span>${escapeHtml(appState.payment.txn.type || "Card")}</span></div>
     <div class="summary-row"><b>Transaction ID</b><span>${escapeHtml(appState.payment.txn.id || "T-000000")}</span></div>
     <div class="summary-row"><b>Total</b><span><b>$${appState.booking.total.toFixed(2)}</b></span></div>
   `;
-
-  const print = button("Print Receipt", "btn btn-primary", () => {
-    navigate(SCREENS.RECEIPT);
-  });
-
-  content.append(card, print);
-  wrap.append(content);
+  content.append(card, button("Print Receipt", "btn btn-primary", () => navigate(SCREENS.RECEIPT)));
+  wrap.appendChild(content);
   return wrap;
 }
 
@@ -885,21 +829,13 @@ function CashSuccess() {
   const card = div("card");
   const bookingId = appState.booking.bookingId || "B-000000";
   card.innerHTML = `
-    <div class="state ok">
-      <div class="big">Success</div>
-      <div class="badge">Cash Payment</div>
-    </div>
+    <div class="state ok"><div class="big">Success</div><div class="badge">Cash Payment</div></div>
     <div class="summary-row"><b>Booking ID</b><span>${escapeHtml(bookingId)}</span></div>
     <div class="summary-row"><b>Transaction type</b><span>Cash</span></div>
     <div class="summary-row"><b>Total</b><span><b>$${appState.booking.total.toFixed(2)}</b></span></div>
   `;
-
-  const print = button("Print Receipt", "btn btn-primary", () => {
-    navigate(SCREENS.RECEIPT);
-  });
-
-  content.append(card, print);
-  wrap.append(content);
+  content.append(card, button("Print Receipt", "btn btn-primary", () => navigate(SCREENS.RECEIPT)));
+  wrap.appendChild(content);
   return wrap;
 }
 
@@ -911,28 +847,18 @@ function CardDeclined() {
   const content = div("content");
   const card = div("card");
   card.innerHTML = `
-    <div class="state bad">
-      <div class="big">Declined</div>
-      <div class="badge">Card payment failed</div>
-    </div>
+    <div class="state bad"><div class="big">Declined</div><div class="badge">Card payment failed</div></div>
     <div class="summary-row"><b>Transaction type</b><span>${escapeHtml(appState.payment.txn.type || "Card")}</span></div>
     <div class="summary-row"><b>Total</b><span><b>$${appState.booking.total.toFixed(2)}</b></span></div>
   `;
 
   const actions = div("actions-row");
-  const retry = button("Retry", "btn", () => {
-    // You had "Retry" disabled in the mock; keep disabled by default but clickable via flag if desired
-  });
+  const retry = button("Retry", "btn", () => {});
   retry.disabled = true;
+  actions.append(retry, button("Change Method", "btn btn-primary", () => navigate(SCREENS.BOOKING_SUMMARY)));
 
-  const change = button("Change Method", "btn btn-primary", () => {
-    navigate(SCREENS.BOOKING_SUMMARY);
-  });
-
-  actions.append(retry, change);
   content.append(card, actions);
-
-  wrap.append(content);
+  wrap.appendChild(content);
   return wrap;
 }
 
@@ -943,49 +869,34 @@ function ReceiptPrinted() {
 
   const content = div("content");
   const card = div("card");
-  card.innerHTML = `
-    <div class="state ok">
-      <div class="big">Receipt Printed</div>
-      <div class="badge">Print complete</div>
-    </div>
-  `;
+  card.innerHTML = `<div class="state ok"><div class="big">Receipt Printed</div><div class="badge">Print complete</div></div>`;
 
   const actions = div("actions-row");
   const share = button("Share", "btn", async () => {
-    // optional OS share
     const text = `Booking ${appState.booking.bookingId || ""} • Total $${appState.booking.total.toFixed(2)}`;
     if (navigator.share) {
-      try { await navigator.share({ title: "Receipt", text }); }
-      catch { /* ignore */ }
+      try { await navigator.share({ title: "Receipt", text }); } catch {}
     } else {
       await navigator.clipboard?.writeText?.(text);
       showSnackbar("Share not available. Copied summary to clipboard.");
     }
   });
-
-  const done = button("Done", "btn btn-primary", () => {
-    resetFlow();
-    navigate(SCREENS.DASHBOARD);
-  });
+  const done = button("Done", "btn btn-primary", () => { resetFlow(); navigate(SCREENS.DASHBOARD); });
 
   actions.append(share, done);
   content.append(card, actions);
-
-  wrap.append(content);
+  wrap.appendChild(content);
   return wrap;
 }
 
 /* ----------------------- Scanner implementation ----------------------- */
 async function initScannerEngine() {
-  // already ready?
   if (appState.scanner.detector || appState.scanner.zxingReader) return;
 
-  // BarcodeDetector first
   if ("BarcodeDetector" in window) {
     try {
       const formats = await window.BarcodeDetector.getSupportedFormats?.();
-      const supportsPdf417 = Array.isArray(formats) && formats.includes("pdf417");
-      if (supportsPdf417) {
+      if (Array.isArray(formats) && formats.includes("pdf417")) {
         appState.scanner.detector = new BarcodeDetector({ formats: ["pdf417"] });
         appState.scanner.engineName = "BarcodeDetector (native)";
         return;
@@ -998,20 +909,16 @@ async function initScannerEngine() {
     appState.scanner.engineName = "ZXing (fallback)";
   }
 
-  // ZXing fallback (ESM)
-  if (!appState.scanner.zxing) {
-    appState.scanner.zxing = await import("https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/+esm");
-    appState.scanner.zxingReader = new appState.scanner.zxing.BrowserMultiFormatReader();
+  appState.scanner.zxing = await import("https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/+esm");
+  appState.scanner.zxingReader = new appState.scanner.zxing.BrowserMultiFormatReader();
 
-    // prioritize PDF417
-    const hints = new Map();
-    hints.set(appState.scanner.zxing.DecodeHintType.POSSIBLE_FORMATS, [
-      appState.scanner.zxing.BarcodeFormat.PDF_417
-    ]);
-    appState.scanner.zxingReader.hints = hints;
+  const hints = new Map();
+  hints.set(appState.scanner.zxing.DecodeHintType.POSSIBLE_FORMATS, [
+    appState.scanner.zxing.BarcodeFormat.PDF_417
+  ]);
+  appState.scanner.zxingReader.hints = hints;
 
-    appState.scanner.engineName = "ZXing (@zxing/library)";
-  }
+  appState.scanner.engineName = "ZXing (@zxing/library)";
 }
 
 async function startScanner(videoEl) {
@@ -1019,11 +926,7 @@ async function startScanner(videoEl) {
 
   const constraints = {
     audio: false,
-    video: {
-      facingMode: { ideal: "environment" },
-      width: { ideal: 1920 },
-      height: { ideal: 1080 }
-    }
+    video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }
   };
 
   const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -1032,8 +935,6 @@ async function startScanner(videoEl) {
   await videoEl.play();
 
   appState.scanner.cameraState = "running";
-  appState.scanner.torchAvailable = await updateTorchAvailability();
-
   scanLoop(videoEl);
 }
 
@@ -1051,31 +952,14 @@ async function stopScanner() {
   }
   appState.scanner.stream = null;
   appState.scanner.cameraState = "idle";
-  appState.scanner.torchAvailable = false;
-}
-
-async function updateTorchAvailability() {
-  try {
-    const track = appState.scanner.stream?.getVideoTracks?.()?.[0];
-    const caps = track?.getCapabilities?.();
-    return !!caps?.torch;
-  } catch {
-    return false;
-  }
 }
 
 async function toggleTorch() {
   try {
     const track = appState.scanner.stream?.getVideoTracks?.()?.[0];
-    if (!track) {
-      showSnackbar("Start the camera first.");
-      return;
-    }
+    if (!track) { showSnackbar("Start the camera first."); return; }
     const caps = track.getCapabilities?.();
-    if (!caps?.torch) {
-      showSnackbar("Torch not available on this device/browser.");
-      return;
-    }
+    if (!caps?.torch) { showSnackbar("Torch not available on this device/browser."); return; }
     const settings = track.getSettings?.();
     const isOn = !!settings?.torch;
     await track.applyConstraints({ advanced: [{ torch: !isOn }] });
@@ -1084,7 +968,14 @@ async function toggleTorch() {
   }
 }
 
-function publishScan(text) {
+/**
+ * UPDATED: On successful scan:
+ * - fill guest form
+ * - stop scanner
+ * - return to Guest Registration
+ * - DO NOT navigate to New/Returning Guest
+ */
+async function publishScan(text) {
   const now = Date.now();
   if (!text) return;
   if (text === appState.scanner.lastText && (now - appState.scanner.lastAt) < 1500) return;
@@ -1092,7 +983,6 @@ function publishScan(text) {
   appState.scanner.lastText = text;
   appState.scanner.lastAt = now;
 
-  // Parse AAMVA → map to form
   const parsed = parseAAMVA(text);
   if (!parsed.ok) {
     showSnackbar("Auto-fill failed. Please enter details manually."); // 11
@@ -1102,21 +992,8 @@ function publishScan(text) {
   applyAAMVAToGuestForm(parsed.fields, text);
   showSnackbar("Details auto-filled."); // 13
 
-  // After scan: try lookup and route to 3A/3B
-  const lookup = lookupGuest(appState.guestForm.idType || "DL", appState.guestForm.idNumber);
-  if (lookup.found) {
-    appState.guestLookup.found = true;
-    appState.guestLookup.guestId = lookup.profile.guestId;
-    appState.guestLookup.profile = lookup.profile;
-    appState.guestLookup.pendingFromScan = { ...appState.guestForm };
-    stopScanner().finally(() => navigate(SCREENS.RETURNING));
-  } else {
-    appState.guestLookup.found = false;
-    appState.guestLookup.guestId = null;
-    appState.guestLookup.profile = null;
-    appState.guestLookup.pendingFromScan = { ...appState.guestForm };
-    stopScanner().finally(() => navigate(SCREENS.NEW_GUEST));
-  }
+  await stopScanner();
+  navigate(SCREENS.GUEST_REG);
 }
 
 async function scanLoop(videoEl) {
@@ -1127,8 +1004,8 @@ async function scanLoop(videoEl) {
       const barcodes = await appState.scanner.detector.detect(videoEl);
       if (barcodes?.length) {
         const val = barcodes[0].rawValue || "";
-        // NOTE: bounding-box gate “fully inside frame” varies by API; keep simple here.
-        publishScan(val);
+        await publishScan(val);
+        return;
       }
     } else if (appState.scanner.zxingReader && appState.scanner.zxing) {
       if (videoEl.readyState >= 2) {
@@ -1155,15 +1032,15 @@ async function scanLoop(videoEl) {
 
         try {
           const res = appState.scanner.zxingReader.decodeBitmap(bitmap);
-          publishScan(res?.getText?.() || "");
-        } catch {
-          // expected when nothing found
-        }
+          const txt = res?.getText?.() || "";
+          if (txt) {
+            await publishScan(txt);
+            return;
+          }
+        } catch {}
       }
     }
-  } catch {
-    // keep scanning quietly
-  }
+  } catch {}
 
   setTimeout(() => scanLoop(videoEl), 110);
 }
@@ -1184,7 +1061,7 @@ async function scanImageFile(file) {
   if (appState.scanner.detector) {
     const barcodes = await appState.scanner.detector.detect(canvas);
     if (barcodes?.length) {
-      publishScan(barcodes[0].rawValue || "");
+      await publishScan(barcodes[0].rawValue || "");
       return;
     }
     showSnackbar("Auto-fill failed. Please enter details manually."); // 11
@@ -1198,7 +1075,7 @@ async function scanImageFile(file) {
 
     try {
       const res = appState.scanner.zxingReader.decodeBitmap(bitmap);
-      publishScan(res?.getText?.() || "");
+      await publishScan(res?.getText?.() || "");
     } catch {
       showSnackbar("Auto-fill failed. Please enter details manually."); // 11
     }
@@ -1220,73 +1097,96 @@ function getScratchCanvas() {
 
 /* ----------------------- AAMVA parsing + mapping ----------------------- */
 /**
- * Parses PDF417 AAMVA raw text into fields keyed by element IDs (DAC, DAD, DCS, etc).
- * Supports common formats where each field appears on its own line: "DCSLASTNAME"
+ * UPDATED: More robust AAMVA parser.
+ * - Splits on \n, \r, record separators (\x1e, \x1d)
+ * - Extracts fields from segments starting with 3-char codes
+ * - Fallback: scans whole string for known codes and slices values between codes
  */
 function parseAAMVA(raw) {
   if (!raw || typeof raw !== "string") return { ok: false, fields: {} };
 
-  // Normalize line breaks and strip NULs
-  const text = raw.replace(/\u0000/g, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const lines = text.split("\n").map(s => s.trim()).filter(Boolean);
+  const text = raw
+    .replace(/\u0000/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
 
   const fields = {};
-  // Many AAMVA barcodes use 3-letter element IDs followed by value
-  for (const line of lines) {
-    const m = line.match(/^([A-Z0-9]{3})(.*)$/);
+
+  // pass 1: split by common separators
+  const segments = text.split(/[\n\x1e\x1d]+/).map(s => s.trim()).filter(Boolean);
+  for (const seg of segments) {
+    const m = seg.match(/^([A-Z0-9]{3})(.*)$/);
     if (!m) continue;
     const key = m[1];
     const val = (m[2] || "").trim();
-    // keep first occurrence unless value empty
-    if (!(key in fields) || !fields[key]) fields[key] = val;
+    if (val && !fields[key]) fields[key] = val;
   }
 
-  // sanity: need at least DAQ or name pieces
+  // pass 2: fallback scanning in case the decoder returns a single blob
+  const KNOWN = ["DAQ","DCS","DAC","DAD","DAG","DAI","DAJ","DAK","DBC","DBB"];
+  const hits = [];
+  for (const code of KNOWN) {
+    const idx = text.indexOf(code);
+    if (idx !== -1) hits.push({ code, idx });
+  }
+  hits.sort((a,b) => a.idx - b.idx);
+
+  for (let i = 0; i < hits.length; i++) {
+    const { code, idx } = hits[i];
+    if (fields[code]) continue;
+
+    const start = idx + 3;
+    const end = (i + 1 < hits.length) ? hits[i + 1].idx : text.length;
+    let val = text.slice(start, end);
+
+    // stop at delimiter if present
+    val = val.split(/[\n\r\x1e\x1d]/)[0];
+    // strip non-printables
+    val = val.replace(/[^\x20-\x7E]/g, "");
+    val = val.trim();
+
+    if (val) fields[code] = val;
+  }
+
   const ok = !!(fields.DAQ || fields.DCS || fields.DAC);
   return { ok, fields };
 }
 
 function applyAAMVAToGuestForm(fields, raw) {
   appState.guestForm.rawAamva = raw;
+  appState.guestForm.scanHints.stateInvalid = "";
 
-  // Full name: DAC first, DAD middle, DCS last
   const first = (fields.DAC || "").trim();
   const middle = (fields.DAD || "").trim();
   const last = (fields.DCS || "").trim();
   const fullName = [first, middle, last].filter(Boolean).join(" ").trim();
   if (fullName) appState.guestForm.fullName = fullName;
 
-  // Address fields
   if (fields.DAG) appState.guestForm.streetAddress = fields.DAG.trim();
   if (fields.DAI) appState.guestForm.city = fields.DAI.trim();
 
-  // State (DAJ) must match dropdown; else keep blank + inline error
   const st = (fields.DAJ || "").trim().toUpperCase();
   if (st && US_STATES.includes(st)) {
     appState.guestForm.state = st;
   } else if (st) {
     appState.guestForm.state = "";
-    setTimeout(() => setInlineError("state", "State value from scan doesn't match list."), 0);
+    appState.guestForm.scanHints.stateInvalid = "State value from scan doesn't match list.";
   }
 
-  // Zip (DAK) normalize ZIP+4 to first 5
   if (fields.DAK) {
     const z = fields.DAK.trim();
     const m = z.match(/^(\d{5})/);
     appState.guestForm.zip = m ? m[1] : z;
   }
 
-  // Gender (DBC): normalize
   if (fields.DBC) {
     const g = fields.DBC.trim().toUpperCase();
-    const gender =
+    appState.guestForm.gender =
       (g === "1" || g === "M" || g === "MALE") ? "Male" :
       (g === "2" || g === "F" || g === "FEMALE") ? "Female" :
       "Other";
-    appState.guestForm.gender = gender;
   }
 
-  // DOB (DBB) to age
   if (fields.DBB) {
     const dob = parseAAMVADate(fields.DBB.trim());
     if (dob) {
@@ -1295,25 +1195,16 @@ function applyAAMVAToGuestForm(fields, raw) {
     }
   }
 
-  // ID Type: if unknown, leave blank. (Many barcodes don’t expose the subfile designator cleanly in decoded text.)
-  // If you have a reliable source, map it here. For now: default DL when ID number exists.
-  if (!appState.guestForm.idType) {
-    appState.guestForm.idType = "DL";
-  }
-
-  // ID number (DAQ)
+  // Identification Number (DAQ) — FIXED robustness via updated parser
   if (fields.DAQ) appState.guestForm.idNumber = fields.DAQ.trim();
 
-  // Re-render if we’re on the guest form
-  if (appState.screen === SCREENS.GUEST_REG) render();
+  // Default ID type if empty (keeps flow usable)
+  if (!appState.guestForm.idType) appState.guestForm.idType = "DL";
 }
 
 function parseAAMVADate(s) {
-  // Common forms: YYYYMMDD or MMDDYYYY
   const t = s.replace(/\D/g, "");
   if (t.length !== 8) return null;
-
-  // Heuristic: if starts with 19/20 => YYYYMMDD
   if (t.startsWith("19") || t.startsWith("20")) {
     const yyyy = t.slice(0, 4), mm = t.slice(4, 6), dd = t.slice(6, 8);
     return `${yyyy}-${mm}-${dd}`;
@@ -1351,25 +1242,17 @@ function validateStay(s) {
   const errs = {};
   if (!s.checkIn) errs.checkIn = "Required";
   if (!s.checkOut) errs.checkOut = "Required";
-
-  if (s.checkIn && s.checkOut) {
-    if (new Date(s.checkOut) <= new Date(s.checkIn)) {
-      errs.checkOut = "Must be after check-in";
-    }
-  }
-
+  if (s.checkIn && s.checkOut && new Date(s.checkOut) <= new Date(s.checkIn)) errs.checkOut = "Must be after check-in";
   if (!s.roomId) errs.roomId = "Required";
   if (!s.dailyRate) errs.dailyRate = "Required";
-
   const dep = Number(s.deposit || 0);
   const disc = Number(s.discount || 0);
   if (isNaN(dep) || dep < 0) errs.deposit = "Must be a number ≥ 0";
   if (isNaN(disc) || disc < 0) errs.discount = "Must be a number ≥ 0";
-
   return errs;
 }
 
-/* ----------------------- Booking computations ----------------------- */
+/* ----------------------- Booking ----------------------- */
 function computeBooking() {
   const nights = diffNights(appState.stay.checkIn, appState.stay.checkOut);
   appState.booking.nights = nights;
@@ -1379,41 +1262,37 @@ function computeBooking() {
   const discount = Number(appState.stay.discount || 0);
 
   const subtotal = nights * rate;
-  const total = Math.max(0, subtotal + deposit - discount);
-
-  appState.booking.total = total;
+  appState.booking.total = Math.max(0, subtotal + deposit - discount);
   appState.booking.bookingId = `B-${Math.floor(100000 + Math.random() * 899999)}`;
 }
 
-/* ----------------------- Payment outcome simulation ----------------------- */
-function startProcessingOutcome(kind /* 'card' */) {
-  // non-interruptible; after delay route
-  const txnId = `T-${Math.floor(100000 + Math.random() * 899999)}`;
-  appState.payment.txn.id = txnId;
-
+/* ----------------------- Payment simulation ----------------------- */
+function startProcessingOutcome() {
+  appState.payment.txn.id = `T-${Math.floor(100000 + Math.random() * 899999)}`;
   setTimeout(() => {
-    // For demo: 80% success
     const ok = Math.random() < 0.8;
-    if (ok) {
-      appState.payment.lastOutcome = "success";
-      navigate(SCREENS.CARD_SUCCESS);
-    } else {
-      appState.payment.lastOutcome = "declined";
-      navigate(SCREENS.CARD_DECLINED);
-    }
+    if (ok) navigate(SCREENS.CARD_SUCCESS);
+    else navigate(SCREENS.CARD_DECLINED);
   }, 1800);
 }
 
 /* ----------------------- Guest lookup ----------------------- */
 function lookupGuest(idType, idNumber) {
   const guests = loadGuests();
-  const profile = guests.find(g => (g.idType || "").toUpperCase() === (idType || "").toUpperCase()
-    && String(g.idNumber || "").trim() === String(idNumber || "").trim());
-  if (profile) return { found: true, profile };
-  return { found: false, profile: null };
+  const num = String(idNumber || "").trim();
+  const type = String(idType || "").trim().toUpperCase();
+
+  let profile = null;
+  if (type) {
+    profile = guests.find(g => (g.idType || "").toUpperCase() === type && String(g.idNumber || "").trim() === num);
+  } else {
+    profile = guests.find(g => String(g.idNumber || "").trim() === num);
+  }
+
+  return profile ? { found: true, profile } : { found: false, profile: null };
 }
 
-/* ----------------------- Helpers: UI fields ----------------------- */
+/* ----------------------- Field Components ----------------------- */
 function inputField(label, key, placeholder, attrs = {}) {
   const f = div("field");
   f.appendChild(divText("label", label));
@@ -1424,9 +1303,8 @@ function inputField(label, key, placeholder, attrs = {}) {
   Object.assign(inp, attrs);
   inp.addEventListener("input", (e) => {
     appState.guestForm[key] = e.target.value;
+    if (key === "state") appState.guestForm.scanHints.stateInvalid = "";
   });
-  inp.dataset.errkey = key;
-
   f.append(inp, inlineErrorEl(key));
   return f;
 }
@@ -1436,7 +1314,6 @@ function selectField(label, key, options, placeholder = "Select") {
   f.appendChild(divText("label", label));
   const sel = document.createElement("select");
   sel.className = "input";
-  sel.dataset.errkey = key;
 
   for (const opt of options) {
     const o = document.createElement("option");
@@ -1447,6 +1324,7 @@ function selectField(label, key, options, placeholder = "Select") {
   sel.value = appState.guestForm[key] || "";
   sel.addEventListener("change", (e) => {
     appState.guestForm[key] = e.target.value;
+    if (key === "state") appState.guestForm.scanHints.stateInvalid = "";
   });
 
   f.append(sel, inlineErrorEl(key));
@@ -1460,7 +1338,6 @@ function dateField(label, key) {
   inp.type = "date";
   inp.className = "input";
   inp.value = appState.stay[key] || "";
-  inp.dataset.errkey = key;
   inp.addEventListener("input", (e) => {
     appState.stay[key] = e.target.value;
     if (key === "checkIn" && new Date(appState.stay.checkOut) <= new Date(appState.stay.checkIn)) {
@@ -1477,7 +1354,6 @@ function selectStayField(label, key, options, placeholder = "Select", labeler = 
   f.appendChild(divText("label", label));
   const sel = document.createElement("select");
   sel.className = "input";
-  sel.dataset.errkey = key;
 
   if (placeholder !== null) {
     const o0 = document.createElement("option");
@@ -1496,7 +1372,6 @@ function selectStayField(label, key, options, placeholder = "Select", labeler = 
   sel.value = appState.stay[key] || "";
   sel.addEventListener("change", (e) => {
     appState.stay[key] = e.target.value;
-
     if (key === "roomId") {
       const opts = dailyRateOptionsForRoom(appState.stay.roomId);
       appState.stay.dailyRate = opts[0] || "";
@@ -1515,11 +1390,7 @@ function inputStayField(label, key, attrs = {}) {
   inp.className = "input";
   inp.value = appState.stay[key] || "";
   Object.assign(inp, attrs);
-  inp.addEventListener("input", (e) => {
-    appState.stay[key] = e.target.value;
-  });
-  inp.dataset.errkey = key;
-
+  inp.addEventListener("input", (e) => { appState.stay[key] = e.target.value; });
   f.append(inp, inlineErrorEl(key));
   return f;
 }
@@ -1533,20 +1404,12 @@ function inputPayment(label, key, placeholder, attrs = {}) {
   inp.placeholder = placeholder;
   inp.value = appState.payment.card[key] || "";
   Object.assign(inp, attrs);
-  inp.addEventListener("input", (e) => {
-    appState.payment.card[key] = e.target.value;
-  });
-  inp.dataset.errkey = errKey;
-
+  inp.addEventListener("input", (e) => { appState.payment.card[key] = e.target.value; });
   f.append(inp, inlineErrorEl(errKey));
   return f;
 }
 
-function row(a, b) {
-  const r = div("input-row");
-  r.append(a, b);
-  return r;
-}
+function row(a, b) { const r = div("input-row"); r.append(a, b); return r; }
 
 function tile(text, kind, onClick) {
   const t = document.createElement("div");
@@ -1562,41 +1425,7 @@ function hrOther() {
   return wrap;
 }
 
-function button(text, className, onClick) {
-  const b = document.createElement("button");
-  b.className = className;
-  b.textContent = text;
-  b.addEventListener("click", onClick);
-  return b;
-}
-
-function iconButton(svg, aria, onClick) {
-  const b = document.createElement("button");
-  b.className = "icon-btn";
-  b.setAttribute("aria-label", aria);
-  b.innerHTML = typeof svg === "string" ? svg : String(svg);
-  b.addEventListener("click", onClick);
-  return b;
-}
-
-function div(cls) {
-  const d = document.createElement("div");
-  d.className = cls;
-  return d;
-}
-function divText(cls, txt) {
-  const d = div(cls);
-  d.textContent = txt;
-  return d;
-}
-function elP(cls, txt) {
-  const p = document.createElement("div");
-  p.className = cls;
-  p.textContent = txt;
-  return p;
-}
-
-/* ----------------------- Inline error utilities ----------------------- */
+/* ----------------------- Inline errors ----------------------- */
 function inlineErrorEl(key) {
   const e = document.createElement("div");
   e.className = "error";
@@ -1665,24 +1494,10 @@ function resetFlow() {
     idType: "",
     idNumber: "",
     rawAamva: "",
+    scanHints: { stateInvalid: "" },
   };
-  appState.guestLookup = {
-    found: false,
-    guestId: null,
-    profile: null,
-    pendingFromScan: null,
-  };
-  appState.stay = {
-    checkIn: todayISO(),
-    checkOut: addDaysISO(todayISO(), 1),
-    adults: "1",
-    children: "0",
-    roomId: "101",
-    ratePlanId: "standard",
-    dailyRate: "119",
-    deposit: "0",
-    discount: "0",
-  };
+  appState.guestLookup = { found: false, guestId: null, profile: null };
+  appState.stay = { checkIn: todayISO(), checkOut: addDaysISO(todayISO(), 1), adults: "1", children: "0", roomId: "101", dailyRate: "119", deposit: "0", discount: "0" };
   appState.booking = { nights: 1, total: 0, bookingId: null };
   appState.payment = { method: null, card: { number: "", expiry: "", cvv: "", name: "", zip: "" }, txn: { type: "", id: "" }, lastOutcome: null };
   stopScanner().catch(()=>{});
@@ -1690,15 +1505,7 @@ function resetFlow() {
 
 /* ----------------------- Boot ----------------------- */
 window.addEventListener("beforeunload", () => {
-  // stop camera tracks if any
-  if (appState.scanner.stream) {
-    appState.scanner.stream.getTracks().forEach(t => t.stop());
-  }
-});
-
-// Keep Guest Registration inputs in sync on rerender (especially after scan)
-document.addEventListener("input", (e) => {
-  // handled per input listeners
+  if (appState.scanner.stream) appState.scanner.stream.getTracks().forEach(t => t.stop());
 });
 
 render();
