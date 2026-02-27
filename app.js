@@ -1,12 +1,12 @@
 /* app.js
    SPA controller for the Check-In usability-testing prototype.
 
-   Important: This app intentionally does NOT modify any of the provided screen HTML/CSS.
-   It loads the provided static .html files at runtime (via fetch), extracts each screen's
-   existing <style> and <body> markup, and then wires up the required step-by-step flow.
-
-   NOTE: Because this uses fetch() to load local HTML files, run via a local web server
-   (not directly via file://).
+   IMPORTANT:
+   - We do NOT change any provided screen UI/markup/styles.
+   - We load each provided .html at runtime and inject its <style> + <body>.
+   - We now ALSO execute each screen's inline <script> (unchanged) so existing
+     working behavior (scanner autofill, input formatting, animations) remains intact.
+   - Inline scripts are executed in a sandbox function scope to avoid global redeclare issues.
 */
 (() => {
   "use strict";
@@ -23,7 +23,6 @@
   })();
 
   // Map each step to the provided static HTML file.
-  // (These filenames match the uploaded files.)
   const SCREEN_FILES = {
     dashboard: "dashboard.html",
     guestRegistration: "refinedGuestRegistration.html",
@@ -41,7 +40,7 @@
     receiptPrinted: "receiptPrinted.html"
   };
 
-  const screenCache = new Map(); // key -> { css, html }
+  const screenCache = new Map(); // key -> { css, html, scripts: [{text, src}] }
 
   const STORAGE_KEY = "ux_checkin_knownGuests_v1";
 
@@ -92,6 +91,39 @@
   let processingTimer = null;
   let renderToken = 0;
 
+  // Track & cleanup timers created by inline scripts we execute
+  let activeScriptDisposers = [];
+  let currentScreenKey = null;
+
+  function disposeActiveScripts() {
+    for (const d of activeScriptDisposers) {
+      try { d(); } catch {}
+    }
+    activeScriptDisposers = [];
+  }
+
+  function preUnmountCleanup() {
+    // If scanner overlay is open, trigger its own close handler (untouched logic)
+    const scanner = document.getElementById("scannerScreen");
+    if (scanner && scanner.classList.contains("is-open")) {
+      const closeBtn = document.getElementById("closeBtn");
+      closeBtn?.click();
+    }
+
+    // Stop any active camera streams if present
+    for (const v of $$("video", document)) {
+      try {
+        const so = v.srcObject;
+        if (so && typeof so.getTracks === "function") {
+          so.getTracks().forEach(t => {
+            try { t.stop(); } catch {}
+          });
+        }
+        v.srcObject = null;
+      } catch {}
+    }
+  }
+
   function loadKnownGuests() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -119,8 +151,7 @@
     const list = loadKnownGuests();
     if (list.some(x => x && x.idNumber === idNumber)) return true;
 
-    // Heuristic to ensure usability tests can exercise both paths on first run:
-    // even last digit => returning.
+    // Heuristic for testability (even last digit => returning)
     const last = (idNumber || "").replace(/\D/g, "").slice(-1);
     if (!last) return false;
     return Number(last) % 2 === 0;
@@ -145,15 +176,7 @@
     return Number.isFinite(n) ? n : 0;
   }
 
-  function toISODate(d) {
-    const yy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${yy}-${mm}-${dd}`;
-  }
-
   function formatDateTime(dateStr, kind) {
-    // kind: "checkin" => 2pm, "checkout" => 11am
     if (!dateStr) return "Time and Date";
     const base = new Date(dateStr + "T00:00:00");
     if (Number.isNaN(base.getTime())) return "Time and Date";
@@ -208,27 +231,92 @@
     // Extract styles as-is.
     const css = $$("style", doc).map(s => s.textContent || "").join("\n\n").trim();
 
-    // Remove scripts so we can wire the flow from this single app.js.
+    // Extract scripts (UNCHANGED) so we can execute them after mounting.
+    const scripts = $$("script", doc).map(s => ({
+      src: s.getAttribute("src") || "",
+      text: s.textContent || ""
+    }));
+
+    // Remove scripts from markup injection (scripts inserted via innerHTML do not execute anyway)
     $$("script", doc).forEach(s => s.remove());
 
     // Use body markup as-is.
     const html = (doc.body ? doc.body.innerHTML : "").trim();
 
-    const out = { css, html };
+    const out = { css, html, scripts };
     screenCache.set(key, out);
     return out;
   }
 
+  function runInlineScripts(scripts) {
+    if (!Array.isArray(scripts) || scripts.length === 0) return;
+
+    for (const s of scripts) {
+      // If external scripts exist, we can load them (none in your provided files),
+      // but we keep support here.
+      if (s.src) {
+        const el = document.createElement("script");
+        el.src = s.src;
+        document.body.appendChild(el);
+        continue;
+      }
+
+      const code = (s.text || "").trim();
+      if (!code) continue;
+
+      // Sandbox execution so "const x" in scripts doesn't pollute global scope.
+      // Also intercept timers so we can cleanup on navigation.
+      const timeouts = [];
+      const intervals = [];
+
+      const _setTimeout = window.setTimeout.bind(window);
+      const _setInterval = window.setInterval.bind(window);
+      const _clearTimeout = window.clearTimeout.bind(window);
+      const _clearInterval = window.clearInterval.bind(window);
+
+      const wrappedSetTimeout = (fn, ms, ...args) => {
+        const id = _setTimeout(fn, ms, ...args);
+        timeouts.push(id);
+        return id;
+      };
+      const wrappedSetInterval = (fn, ms, ...args) => {
+        const id = _setInterval(fn, ms, ...args);
+        intervals.push(id);
+        return id;
+      };
+
+      try {
+        // Execute exactly the script text, untouched.
+        const fn = new Function(
+          "setTimeout",
+          "setInterval",
+          "clearTimeout",
+          "clearInterval",
+          code
+        );
+        fn(wrappedSetTimeout, wrappedSetInterval, _clearTimeout, _clearInterval);
+
+        activeScriptDisposers.push(() => {
+          for (const id of timeouts) { try { _clearTimeout(id); } catch {} }
+          for (const id of intervals) { try { _clearInterval(id); } catch {} }
+        });
+      } catch (e) {
+        console.error("Inline script execution failed:", e);
+      }
+    }
+  }
+
   async function render(key) {
-    // Prevent out-of-order async renders if the user clicks quickly.
     const token = ++renderToken;
 
+    // Cleanup prior screen
     if (processingTimer) {
       clearTimeout(processingTimer);
       processingTimer = null;
     }
+    preUnmountCleanup();
+    disposeActiveScripts();
 
-    // Small placeholder while loading.
     root.innerHTML = "";
     screenStyles.textContent = "";
 
@@ -238,6 +326,10 @@
     screenStyles.textContent = screen.css || "";
     root.innerHTML = screen.html || "";
 
+    // Execute original inline scripts (scanner + formatting + animations) UNCHANGED
+    runInlineScripts(screen.scripts || []);
+
+    currentScreenKey = key;
     bind(key);
   }
 
@@ -288,7 +380,7 @@
       case "cashPaymentSuccessful": return bindCashSuccess();
       case "cardPayment": return bindCardPayment();
       case "tapToPay": return bindTapToPay();
-      case "cardPaymentProcessing": return; // passive
+      case "cardPaymentProcessing": return; // passive (dots script runs)
       case "cardPaymentDeclined": return bindCardDeclined();
       case "cardPaymentSuccessful": return bindCardSuccess();
       case "receiptPrinted": return bindReceiptPrinted();
@@ -314,19 +406,17 @@
   }
 
   function bindGuestRegistration() {
+    // NOTE: Scanner behavior is intentionally NOT re-implemented here.
+    // The original scanner script inside refinedGuestRegistration.html is executed unchanged.
+
     const form = $("#guestForm", root);
     const nextBtn = $(".primary-btn", root);
     const backBtn = $(".icon-btn[aria-label='Back']", root);
-    const openScannerBtn = $("#openScannerBtn", root);
-
-    const scannerScreen = $("#scannerScreen", root);
-    const closeScannerBtn = $("#closeBtn", root);
-    const flashBtn = $("#flashBtn", root);
 
     const getVal = (id) => ($("#" + id, root)?.value ?? "").trim();
     const setVal = (id, val) => { const el = $("#" + id, root); if (el) el.value = val ?? ""; };
 
-    // Restore any previous state.
+    // Restore state into fields (does not alter scanner logic)
     setVal("fullName", state.guest.fullName);
     setVal("streetAddress", state.guest.streetAddress);
     setVal("city", state.guest.city);
@@ -337,92 +427,30 @@
     setVal("idType", state.guest.idType);
     setVal("idNumber", state.guest.idNumber);
 
-    if (backBtn) backBtn.addEventListener("click", () => go("dashboard"));
+    backBtn?.addEventListener("click", () => go("dashboard"));
 
-    if (nextBtn) {
-      nextBtn.addEventListener("click", () => {
-        if (form && typeof form.reportValidity === "function" && !form.reportValidity()) return;
+    nextBtn?.addEventListener("click", () => {
+      if (form && typeof form.reportValidity === "function" && !form.reportValidity()) return;
 
-        state.guest = {
-          fullName: getVal("fullName"),
-          streetAddress: getVal("streetAddress"),
-          city: getVal("city"),
-          state: getVal("state"),
-          zip: getVal("zip"),
-          gender: getVal("gender"),
-          age: getVal("age"),
-          idType: getVal("idType"),
-          idNumber: getVal("idNumber")
-        };
-
-        // New check-in flow => new booking IDs.
-        state.booking.bookingId = "";
-        state.booking.transactionId = "";
-
-        const returning = isReturningGuest(state.guest.idNumber);
-        go(returning ? "returningGuest" : "newGuest");
-      });
-    }
-
-    function closeScanner() {
-      if (scannerScreen) scannerScreen.classList.remove("is-open");
-    }
-
-    function openScanner() {
-      if (!scannerScreen) return;
-      scannerScreen.classList.add("is-open");
-
-      // Simulated scan: tap in the camera area to autofill.
-      const cameraArea = $(".camera-area", root);
-      const scanWindow = $(".scan-window", root);
-
-      const fillFromScan = () => {
-        setVal("fullName", "Jordan Taylor");
-        setVal("streetAddress", "123 Main St");
-        setVal("city", "Chicago");
-        setVal("state", "IL");
-        setVal("zip", "60601");
-        setVal("gender", "Male");
-        setVal("age", "32");
-        setVal("idType", "DL");
-        setVal("idNumber", "A123456789");
-        closeScanner();
+      state.guest = {
+        fullName: getVal("fullName"),
+        streetAddress: getVal("streetAddress"),
+        city: getVal("city"),
+        state: getVal("state"),
+        zip: getVal("zip"),
+        gender: getVal("gender"),
+        age: getVal("age"),
+        idType: getVal("idType"),
+        idNumber: getVal("idNumber")
       };
 
-      let autoTimer = setTimeout(fillFromScan, 1200);
+      // New check-in flow => new booking IDs.
+      state.booking.bookingId = "";
+      state.booking.transactionId = "";
 
-      const onTap = (e) => {
-        e.preventDefault();
-        clearTimeout(autoTimer);
-        fillFromScan();
-        cleanup();
-      };
-
-      const cleanup = () => {
-        cameraArea?.removeEventListener("click", onTap);
-        scanWindow?.removeEventListener("click", onTap);
-      };
-
-      cameraArea?.addEventListener("click", onTap, { once: true });
-      scanWindow?.addEventListener("click", onTap, { once: true });
-
-      closeScannerBtn?.addEventListener("click", () => {
-        clearTimeout(autoTimer);
-        cleanup();
-        closeScanner();
-      }, { once: true });
-    }
-
-    if (openScannerBtn) openScannerBtn.addEventListener("click", openScanner);
-    closeScannerBtn?.addEventListener("click", closeScanner);
-
-    if (flashBtn) {
-      flashBtn.addEventListener("click", () => {
-        flashBtn.classList.toggle("flash-active");
-        const pressed = flashBtn.getAttribute("aria-pressed") === "true";
-        flashBtn.setAttribute("aria-pressed", String(!pressed));
-      });
-    }
+      const returning = isReturningGuest(state.guest.idNumber);
+      go(returning ? "returningGuest" : "newGuest");
+    });
   }
 
   function bindReturningGuest() {
@@ -469,16 +497,7 @@
     const deposit = $("#deposit", root);
     const discount = $("#discount", root);
 
-    // Default dates if blank (mirrors the intent of the original inline script).
-    if (checkin && checkout && (!checkin.value && !checkout.value)) {
-      const d1 = new Date();
-      const d2 = new Date();
-      d2.setDate(d1.getDate() + 2);
-      checkin.value = toISODate(d1);
-      checkout.value = toISODate(d2);
-    }
-
-    // Restore state.
+    // Restore state (default date script still runs unchanged too)
     if (checkin && state.stay.checkin) checkin.value = state.stay.checkin;
     if (checkout && state.stay.checkout) checkout.value = state.stay.checkout;
     if (adults && state.stay.adults) adults.value = state.stay.adults;
@@ -687,9 +706,7 @@
       try {
         if (navigator.share) await navigator.share({ title: "Receipt", text });
         else alert(text);
-      } catch {
-        // ignore
-      }
+      } catch {}
     });
 
     done?.addEventListener("click", () => {
