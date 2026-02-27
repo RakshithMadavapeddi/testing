@@ -735,23 +735,48 @@
   }
 
   function deriveIdType(raw) {
-    const t = (raw || "")
-      .replace(/\r\n/g, "\n")
-      .replace(/\r/g, "\n")
-      .replace(/[\x1e\x1d\x1c]/g, "\n")
-      .toUpperCase();
+  if (!raw) return "";
 
-    // Most AAMVA payloads include a subfile designator line that is exactly
-    // "DL" or "ID" before the element block (often right before DAQ).
-    const m = t.match(/(?:^|\n)\s*(DL|ID)\s*(?=[A-Z]{3})/);
-    if (m && m[1]) return m[1];
+  // Normalize to a single string with no whitespace/control chars
+  const t = String(raw)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[\x1e\x1d\x1c]/g, "\n")
+    .toUpperCase();
 
-    // Some payloads concatenate: "DLDAQ" or "IDDAQ"
-    const m2 = t.match(/(?:^|\n|@)(DL|ID)(?=[A-Z]{3})/);
-    if (m2 && m2[1]) return m2[1];
+  // Remove all whitespace/newlines so the header becomes contiguous like the spec
+  const compact = t.replace(/\s+/g, "");
 
-    return "";
+  /**
+   * Header shape (AAMVA):
+   * "ANSI" + IIN(6) + AAMVAver(2) + JurisVer(2) + Entries(2) + [Subfile(2)+Offset(4)+Len(4)] * entries
+   *
+   * Example:
+   * ANSI 636000 11 00 02  DL 0041 0278  ZV 0319 0008
+   * => "ANSI636000110002DL00410278ZV03190008"
+   */
+  const m = compact.match(/ANSI([0-9]{6})([0-9]{2})([0-9]{2})([0-9]{2})(.*)/);
+  if (!m) return "";
+
+  const entries = parseInt(m[4], 10);
+  if (!Number.isFinite(entries) || entries <= 0) return "";
+
+  const table = m[5] || "";
+
+  // Walk subfile table in 10-char chunks: TT + OOOO + LLLL
+  for (let i = 0; i < entries; i++) {
+    const start = i * 10;
+    if (start + 10 > table.length) break;
+
+    const type = table.slice(start, start + 2);      // TT
+    // const offset = table.slice(start + 2, start + 6); // OOOO (unused)
+    // const len = table.slice(start + 6, start + 10);   // LLLL (unused)
+
+    if (type === "DL" || type === "ID") return type;
   }
+
+  return "";
+}
 
   function fillFormFromScan(rawText) {
     const f = parseAamva(rawText);
