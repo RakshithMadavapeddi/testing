@@ -208,7 +208,7 @@
       justify-content:center;
     }
     .scanner-screen .icon-btn img{
-     display:block;
+      display:block;
     }
     img.icon-close{ width:14px; height:14px; }
     img.icon-flash{ width:18px; height:18px; }
@@ -271,7 +271,7 @@
       <section id="registrationScreen" style="display:flex; flex-direction:column; min-height:100vh;">
         <!-- Top App Bar -->
         <header class="topbar" role="banner">
-          <button class="icon-btn" type="button" aria-label="Back" style="width:14px; height:14px;">
+          <button class="icon-btn" type="button" aria-label="Back">
             <img src="https://www.figma.com/api/mcp/asset/1e4802d7-6430-446c-967a-021dd422cc74" alt="" />
           </button>
 
@@ -649,7 +649,20 @@
   // =========================
   function parseAamva(raw) {
     // Normalize line breaks
-    const text = (raw || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    let text = (raw || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      // Some SDKs include record/field separators as ASCII control chars
+      .replace(/[\x1e\x1d\x1c]/g, "\n");
+
+    // Many scanners concatenate the AAMVA subfile designator ("DL" or "ID")
+    // directly with the first element (e.g., "DLDAQ..."). Insert a newline so
+    // element parsing can work reliably.
+    text = text
+      // At line starts: "DLDAQ" -> "DL\nDAQ"
+      .replace(/(^|[\n\r])\s*(DL|ID)(?=[A-Z]{3})/g, "$1$2\n")
+      // After the AAMVA header blob: "...@...DLDAQ" -> "...DL\nDAQ"
+      .replace(/(@[\s\S]{0,200}?)(DL|ID)(?=[A-Z]{3})/g, "$1$2\n");
 
     // Extract 3-letter elements (e.g., "DCS", "DAC") and their values.
     // Many PDFs contain headers; we just scan all lines.
@@ -722,12 +735,21 @@
   }
 
   function deriveIdType(raw) {
-    // Heuristic: look for subfile designator tokens early in string.
-    // If unknown, return "" and let user choose.
-    const t = (raw || "").toUpperCase();
-    const head = t.slice(0, 120);
-    if (head.includes("\nDL") || head.includes("DL\n") || head.includes(" DL ")) return "DL";
-    if (head.includes("\nID") || head.includes("ID\n") || head.includes(" ID ")) return "ID";
+    const t = (raw || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/[\x1e\x1d\x1c]/g, "\n")
+      .toUpperCase();
+
+    // Most AAMVA payloads include a subfile designator line that is exactly
+    // "DL" or "ID" before the element block (often right before DAQ).
+    const m = t.match(/(?:^|\n)\s*(DL|ID)\s*(?=[A-Z]{3})/);
+    if (m && m[1]) return m[1];
+
+    // Some payloads concatenate: "DLDAQ" or "IDDAQ"
+    const m2 = t.match(/(?:^|\n|@)(DL|ID)(?=[A-Z]{3})/);
+    if (m2 && m2[1]) return m2[1];
+
     return "";
   }
 
