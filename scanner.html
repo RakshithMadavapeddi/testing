@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scanner</title>
+
+  <style>
+    :root{
+      --bg:#f2f2f2;
+      --surface:#ffffff;
+      --text:#1e1e1e;
+      --shadow:0px 1px 2px rgba(0,0,0,.30), 0px 1px 3px rgba(0,0,0,.15);
+      --overlay:rgba(0,0,0,.45);
+      --pad:24px;
+      --radius:4px;
+    }
+
+    *{ box-sizing:border-box; }
+    html, body{ height:100%; }
+    body{
+      margin:0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background:var(--bg);
+      color:var(--text);
+    }
+
+    .app{
+      min-height:100vh;
+      display:flex;
+      justify-content:center;
+    }
+
+    .frame{
+      width:100%;
+      max-width:393px;
+      min-height:100vh;
+      display:flex;
+      flex-direction:column;
+      background:var(--bg);
+    }
+
+    /* ===== Top App Bar ===== */
+    .topbar{
+      background:var(--surface);
+      padding:var(--pad);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      box-shadow:var(--shadow);
+    }
+
+    .title{
+      font-weight:700;
+      font-size:20px;
+      margin:0;
+    }
+
+    .icon-btn{
+      background:transparent;
+      border:0;
+      padding:4px;
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+
+    .icon-btn img{
+      display:block;
+    }
+
+    img.icon-close{ width:14px; height:14px; }
+    img.icon-flash{ width:18px; height:18px; }
+
+    /* ===== Camera Area ===== */
+    .camera-area{
+      flex:1;
+      background:#000;
+      position:relative;
+      overflow:hidden;
+      padding:0 var(--pad);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+
+    /* REAL camera preview */
+    .camera-preview{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      background:#000;
+    }
+
+    /* Scan window container */
+    .scan-window{
+      position:relative;
+      width:100%;
+      height:240px;
+      z-index:2;
+    }
+
+    /* Alignment guide */
+    .alignment-guide{
+      position:absolute;
+      inset:0;
+      border:1px solid #fff;
+      border-radius:var(--radius);
+      pointer-events:none;
+      z-index:3;
+    }
+
+    /* Dimmed overlay outside guide */
+    .scan-window::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      border-radius:var(--radius);
+      box-shadow:0 0 0 9999px var(--overlay);
+      pointer-events:none;
+      z-index:2;
+    }
+
+    .flash-active{
+      filter:brightness(1.3);
+    }
+
+  </style>
+</head>
+
+<body>
+
+<div class="app">
+  <main class="frame">
+
+    <!-- ===== Top App Bar ===== -->
+    <header class="topbar">
+      <button class="icon-btn" id="closeBtn" aria-label="Close">
+        <img
+          class="icon-close"
+          src="https://www.figma.com/api/mcp/asset/5607c657-616b-4274-a7f0-dd7881469e65"
+          alt=""
+        />
+      </button>
+
+      <h1 class="title">Scanner</h1>
+
+      <button
+        class="icon-btn"
+        id="flashBtn"
+        aria-label="Toggle Flash"
+        aria-pressed="false"
+      >
+        <img
+          class="icon-flash"
+          src="https://www.figma.com/api/mcp/asset/70b4391f-f407-45c2-ac7a-2394779d87d9"
+          alt=""
+        />
+      </button>
+    </header>
+
+    <!-- ===== Camera Preview Area ===== -->
+    <section class="camera-area">
+
+      <!-- REAL CAMERA -->
+      <video
+        id="camera"
+        class="camera-preview"
+        autoplay
+        playsinline
+        muted
+      ></video>
+
+      <!-- Scan Window -->
+      <div class="scan-window">
+        <div class="alignment-guide"></div>
+      </div>
+
+    </section>
+
+  </main>
+</div>
+
+<script>
+  const video = document.getElementById("camera");
+  const flashBtn = document.getElementById("flashBtn");
+  const closeBtn = document.getElementById("closeBtn");
+
+  let stream = null;
+  let track = null;
+  let torchOn = false;
+
+  async function startCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false
+      });
+
+      video.srcObject = stream;
+      track = stream.getVideoTracks()[0];
+    } catch (err) {
+      console.error("Camera error:", err);
+      alert("Unable to access camera. Please allow camera permission.");
+    }
+  }
+
+  function stopCamera() {
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+  }
+
+  /* ===== Flash Toggle (Torch) ===== */
+  flashBtn.addEventListener("click", async () => {
+    if (!track) return;
+
+    const capabilities = track.getCapabilities();
+    if (!capabilities.torch) {
+      alert("Flash not supported on this device.");
+      return;
+    }
+
+    torchOn = !torchOn;
+
+    await track.applyConstraints({
+      advanced: [{ torch: torchOn }]
+    });
+
+    flashBtn.classList.toggle("flash-active", torchOn);
+    flashBtn.setAttribute("aria-pressed", torchOn);
+  });
+
+  /* ===== Close Button ===== */
+  closeBtn.addEventListener("click", () => {
+    stopCamera();
+    window.history.back();
+  });
+
+  /* Start camera on load */
+  window.addEventListener("load", startCamera);
+
+  /* Cleanup on leave */
+  window.addEventListener("beforeunload", stopCamera);
+</script>
+
+</body>
+</html>

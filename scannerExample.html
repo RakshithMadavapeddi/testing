@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Optimized PDF417 Scanner (Single File)</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    :root{
+      --bg:#0b0c10;
+      --card:#12141b;
+      --text:#e9ecf1;
+      --muted:#a8b0bd;
+      --accent:#4da3ff;
+      --danger:#ff5d5d;
+      --ok:#4dff88;
+      --border:rgba(255,255,255,.12);
+      --shadow:0 8px 30px rgba(0,0,0,.35);
+      --radius:16px;
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      background:
+        radial-gradient(1200px 900px at 50% -10%, rgba(77,163,255,.18), transparent 60%),
+        radial-gradient(1200px 900px at 90% 10%, rgba(77,255,136,.12), transparent 55%),
+        var(--bg);
+      color:var(--text);
+    }
+
+    header{
+      padding:18px 16px 10px;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+    }
+    h1{ font-size:18px; margin:0; letter-spacing:.2px; }
+    .sub{ font-size:13px; color:var(--muted); line-height:1.35; }
+
+    .wrap{
+      padding:12px 16px 22px;
+      display:grid;
+      gap:12px;
+      max-width:860px;
+      margin:0 auto;
+    }
+
+    .card{
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      overflow:hidden;
+    }
+
+    .viewer{
+      position:relative;
+      width:100%;
+      aspect-ratio:3/4;
+      background:#000;
+    }
+
+    video{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      object-fit:cover;
+    }
+
+    .hud{
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      display:grid;
+      place-items:center;
+    }
+
+    .frame{
+      width:min(78%, 420px);
+      aspect-ratio:4/2.5;
+      border-radius:12px;
+      border:2px solid rgba(255,255,255,.75);
+      box-shadow:0 0 0 9999px rgba(0,0,0,.25);
+      position:relative;
+    }
+
+    .hint{
+      position:absolute;
+      left:50%;
+      top:calc(100% + 10px);
+      transform:translateX(-50%);
+      font-size:12px;
+      color:rgba(255,255,255,.92);
+      background:rgba(0,0,0,.35);
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.18);
+      white-space:nowrap;
+    }
+
+    .tapOverlay{
+      position:absolute;
+      inset:0;
+      border:0;
+      width:100%;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      background:rgba(0,0,0,.35);
+      color:#fff;
+      font-weight:700;
+      font-size:16px;
+      cursor:pointer;
+    }
+    .tapOverlay.on{ display:flex; }
+
+    .controls{
+      padding:12px;
+      display:grid;
+      gap:10px;
+    }
+
+    .meta{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+    }
+
+    .pill{
+      font-size:12px;
+      color:var(--muted);
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:rgba(0,0,0,.22);
+      user-select:none;
+    }
+    .pill.ok{ color:#c9ffe0; border-color:rgba(77,255,136,.35); }
+    .pill.warn{ color:#ffe1c9; border-color:rgba(255,184,77,.35); }
+
+    .row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+    button{
+      appearance:none;
+      border:1px solid var(--border);
+      background:rgba(255,255,255,.06);
+      color:var(--text);
+      padding:12px 12px;
+      border-radius:12px;
+      font-weight:600;
+      font-size:14px;
+      letter-spacing:.2px;
+      cursor:pointer;
+      transition:transform .04s ease, background .15s ease, border-color .15s ease;
+      user-select:none;
+    }
+    button:active{ transform:scale(.99); }
+    button.primary{
+      background:rgba(77,163,255,.18);
+      border-color:rgba(77,163,255,.4);
+    }
+    button.danger{
+      background:rgba(255,93,93,.15);
+      border-color:rgba(255,93,93,.35);
+    }
+    button:disabled{
+      opacity:.55;
+      cursor:not-allowed;
+    }
+
+    .out{
+      padding:12px;
+      display:grid;
+      gap:10px;
+    }
+
+    .status{
+      font-size:13px;
+      color:var(--muted);
+      line-height:1.35;
+    }
+    .status strong{ color:var(--text); }
+
+    textarea{
+      width:100%;
+      min-height:160px;
+      resize:vertical;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:rgba(0,0,0,.35);
+      color:var(--text);
+      padding:12px;
+      font-size:13px;
+      line-height:1.35;
+      outline:none;
+    }
+
+    .hidden{ display:none !important; }
+
+    @media (min-width: 720px) {
+      .wrap { grid-template-columns: 1.2fr .8fr; align-items: start; }
+      .viewer { aspect-ratio: 16 / 11; }
+      .row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Optimized PDF417 Barcode Scanner</h1>
+    <div class="sub">
+      Auto-starts camera (best effort). Uses <strong>BarcodeDetector</strong> if it supports <strong>pdf417</strong>,
+      otherwise falls back to <strong>ZXing</strong>.
+      Torch toggle shown when available.
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card">
+      <div class="viewer">
+        <video id="video" playsinline muted></video>
+
+        <div class="hud" aria-hidden="true">
+          <div class="frame">
+            <div class="hint">Align PDF417 inside the frame</div>
+          </div>
+        </div>
+
+        <!-- iOS/Safari: user gesture needed if autoplay is blocked -->
+        <button id="tapOverlay" class="tapOverlay" type="button">Tap to start camera</button>
+      </div>
+
+      <div class="controls">
+        <div class="meta">
+          <span id="enginePill" class="pill">Engine: …</span>
+          <span id="cameraPill" class="pill">Camera: idle</span>
+        </div>
+
+        <div class="row">
+          <button id="torchBtn" class="primary" disabled>Toggle Torch</button>
+          <button id="stopBtn" class="danger" disabled>Stop Camera</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card out">
+      <div class="status" id="status">
+        Status: <strong>Initializing…</strong>
+      </div>
+      <textarea id="result" placeholder="Decoded text will appear here…"></textarea>
+      <div class="row">
+        <button id="copyBtn">Copy Result</button>
+        <button id="clearBtn">Clear</button>
+      </div>
+    </section>
+  </main>
+
+  <canvas id="canvas" class="hidden"></canvas>
+
+  <script>
+    (function () {
+      // ---------------- UI helpers ----------------
+      const $ = (id) => document.getElementById(id);
+
+      const video = $("video");
+      const canvas = $("canvas");
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+      const torchBtn = $("torchBtn");
+      const stopBtn  = $("stopBtn");
+      const tapOverlay = $("tapOverlay");
+
+      const enginePill = $("enginePill");
+      const cameraPill = $("cameraPill");
+      const statusEl = $("status");
+      const resultEl = $("result");
+      const copyBtn = $("copyBtn");
+      const clearBtn = $("clearBtn");
+
+      function setStatus(msg) {
+        statusEl.innerHTML = `Status: <strong>${msg}</strong>`;
+      }
+      function setEngine(name, kind = "") {
+        enginePill.textContent = `Engine: ${name}`;
+        enginePill.className = `pill ${kind}`.trim();
+      }
+      function setCameraState(msg, kind = "") {
+        cameraPill.textContent = `Camera: ${msg}`;
+        cameraPill.className = `pill ${kind}`.trim();
+      }
+
+      // ---------------- State ----------------
+      let stream = null;
+      let stopLoop = true;
+
+      let detector = null;
+      let zxing = null;
+      let zxingReader = null;
+
+      let lastText = "";
+      let lastAt = 0;
+
+      // Tuning: reduce CPU while keeping good detection
+      const FPS_MS = 120;     // ~8 fps
+      const DUP_MS = 1600;
+      const ROI_W = 0.90;     // center crop
+      const ROI_H = 0.55;
+
+      function publish(text) {
+        const now = Date.now();
+        if (!text) return;
+        if (text === lastText && (now - lastAt) < DUP_MS) return;
+
+        lastText = text;
+        lastAt = now;
+
+        resultEl.value = text;
+        setStatus("✅ Decoded PDF417.");
+        navigator.vibrate?.(25);
+
+        // Hook: integrate with your app here
+        onDecode(text);
+      }
+
+      // Replace this with your guest-registration autofill handler
+      function onDecode(raw) {
+        // Example: just keep scanner running; if you want to stop on success:
+        // stopCamera();
+      }
+
+      // ---------------- Engine selection ----------------
+      async function initEngine() {
+        // Prefer native BarcodeDetector if it supports PDF417
+        if ("BarcodeDetector" in window) {
+          try {
+            const formats = await window.BarcodeDetector.getSupportedFormats?.();
+            const supportsPdf417 = Array.isArray(formats) && formats.includes("pdf417");
+            if (supportsPdf417) {
+              detector = new BarcodeDetector({ formats: ["pdf417"] });
+              setEngine("BarcodeDetector (native)", "ok");
+              return;
+            }
+            setEngine("BarcodeDetector (no pdf417) → ZXing", "warn");
+          } catch {
+            setEngine("BarcodeDetector error → ZXing", "warn");
+          }
+        } else {
+          setEngine("ZXing (fallback)", "warn");
+        }
+
+        // ZXing fallback via ESM import (needs http(s) hosting to be most reliable)
+        if (!zxing) {
+          zxing = await import("https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/+esm");
+          zxingReader = new zxing.BrowserMultiFormatReader();
+
+          const hints = new Map();
+          hints.set(zxing.DecodeHintType.POSSIBLE_FORMATS, [zxing.BarcodeFormat.PDF_417]);
+          zxingReader.hints = hints;
+
+          setEngine("ZXing (@zxing/library)", "ok");
+        }
+      }
+
+      // ---------------- Camera control ----------------
+      async function startCamera() {
+        stopLoop = false;
+        tapOverlay.classList.remove("on");
+
+        const constraints = {
+          audio: false,
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          }
+        };
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        await video.play();
+
+        setCameraState("running", "ok");
+        stopBtn.disabled = false;
+
+        await updateTorchAvailability();
+        setStatus("Scanning… hold steady.");
+        scanLoop();
+      }
+
+      function stopCamera() {
+        stopLoop = true;
+        torchBtn.disabled = true;
+
+        try { video.pause(); } catch {}
+        try { video.srcObject = null; } catch {}
+
+        if (stream) {
+          stream.getTracks().forEach(t => t.stop());
+          stream = null;
+        }
+
+        setCameraState("idle");
+        stopBtn.disabled = true;
+        setStatus("Stopped.");
+      }
+
+      async function updateTorchAvailability() {
+        try {
+          const track = stream?.getVideoTracks?.()?.[0];
+          const caps = track?.getCapabilities?.();
+          torchBtn.disabled = !caps?.torch;
+        } catch {
+          torchBtn.disabled = true;
+        }
+      }
+
+      async function toggleTorch() {
+        try {
+          const track = stream?.getVideoTracks?.()?.[0];
+          if (!track) return;
+
+          const settings = track.getSettings?.();
+          const isOn = !!settings?.torch;
+          await track.applyConstraints({ advanced: [{ torch: !isOn }] });
+        } catch {
+          setStatus("Torch not available.");
+        }
+      }
+
+      // ---------------- Scan loop ----------------
+      async function scanLoop() {
+        if (stopLoop) return;
+
+        try {
+          if (!detector && !zxingReader) await initEngine();
+
+          if (detector) {
+            const codes = await detector.detect(video);
+            if (codes?.length) publish(codes[0].rawValue || "");
+          } else if (zxingReader && zxing) {
+            if (video.readyState >= 2) {
+              const w = video.videoWidth;
+              const h = video.videoHeight;
+
+              const cropW = Math.floor(w * ROI_W);
+              const cropH = Math.floor(h * ROI_H);
+              const sx = Math.floor((w - cropW) / 2);
+              const sy = Math.floor((h - cropH) / 2);
+
+              canvas.width = cropW;
+              canvas.height = cropH;
+              ctx.drawImage(video, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
+
+              const imageData = ctx.getImageData(0, 0, cropW, cropH);
+
+              const luminance = new zxing.RGBLuminanceSource(imageData.data, cropW, cropH);
+              const binarizer = new zxing.HybridBinarizer(luminance);
+              const bitmap = new zxing.BinaryBitmap(binarizer);
+
+              try {
+                const res = zxingReader.decodeBitmap(bitmap);
+                publish(res?.getText?.() || "");
+              } catch {
+                // expected when nothing found
+              }
+            }
+          }
+        } catch {
+          // keep quiet; scanning continues
+        }
+
+        setTimeout(scanLoop, FPS_MS);
+      }
+
+      // ---------------- Events ----------------
+      torchBtn.addEventListener("click", toggleTorch);
+      stopBtn.addEventListener("click", stopCamera);
+
+      tapOverlay.addEventListener("click", async () => {
+        try {
+          setStatus("Requesting camera permission…");
+          await startCamera();
+        } catch {
+          setStatus("Camera blocked. Enable camera permission for this site.");
+        }
+      });
+
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(resultEl.value || "");
+          setStatus("Copied to clipboard.");
+        } catch {
+          setStatus("Copy failed. Select text and copy manually.");
+        }
+      });
+
+      clearBtn.addEventListener("click", () => {
+        resultEl.value = "";
+        lastText = "";
+        setStatus("Cleared.");
+      });
+
+      // Auto-start best effort
+      async function boot() {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          setEngine("No camera API", "warn");
+          setStatus("This browser doesn’t support camera access.");
+          return;
+        }
+
+        setStatus("Initializing engine…");
+        try {
+          await initEngine();
+        } catch {
+          setEngine("Engine init failed", "warn");
+        }
+
+        // Try to start camera automatically.
+        // If browser blocks (common on iOS), show overlay to request a tap.
+        try {
+          setStatus("Starting camera…");
+          await startCamera();
+        } catch {
+          setCameraState("tap to start", "warn");
+          tapOverlay.classList.add("on");
+          setStatus("Tap to start camera.");
+        }
+      }
+
+      // Resume camera when returning to tab (best effort)
+      document.addEventListener("visibilitychange", async () => {
+        if (document.visibilityState === "visible" && !stream) {
+          try { await startCamera(); } catch { tapOverlay.classList.add("on"); }
+        }
+        if (document.visibilityState === "hidden" && stream) {
+          stopCamera();
+        }
+      });
+
+      boot();
+    })();
+  </script>
+</body>
+</html>

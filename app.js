@@ -1,1511 +1,706 @@
-/* Hotel Check-In Kiosk SPA (vanilla) */
+/* app.js
+   SPA controller for the Check-In usability-testing prototype.
 
-const $ = (sel, root = document) => root.querySelector(sel);
-const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+   Important: This app intentionally does NOT modify any of the provided screen HTML/CSS.
+   It loads the provided static .html files at runtime (via fetch), extracts each screen's
+   existing <style> and <body> markup, and then wires up the required step-by-step flow.
 
-/* ----------------------- Assets (simple inline SVG) ----------------------- */
-const ICONS = {
-  account: svgIcon(`<circle cx="12" cy="8" r="4"></circle><path d="M4 22c1.8-4 5-6 8-6s6.2 2 8 6"></path>`),
-  logout: svgIcon(`<path d="M10 17l5-5-5-5"></path><path d="M15 12H3"></path><path d="M21 3v18"></path>`),
-  back: svgIcon(`<path d="M15 18l-6-6 6-6"></path>`),
-  close: svgIcon(`<path d="M18 6L6 18"></path><path d="M6 6l12 12"></path>`),
-  scan: svgIcon(`<path d="M7 7h3V4H6a2 2 0 0 0-2 2v4h3V7Zm10 0v3h3V6a2 2 0 0 0-2-2h-4v3h3Zm0 10h3v3h-3v3h4a2 2 0 0 0 2-2v-4h-3v3Zm-10 3v-3H4v4a2 2 0 0 0 2 2h4v-3H7Z"></path><path d="M7 12h10"></path>`),
-};
+   NOTE: Because this uses fetch() to load local HTML files, run via a local web server
+   (not directly via file://).
+*/
+(() => {
+  "use strict";
 
-function svgIcon(paths) {
-  return `
-  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    ${paths}
-  </svg>`;
-}
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-/* ----------------------- Snackbars & Modal ----------------------- */
-const snackbarHost = $("#snackbarHost");
-function showSnackbar(message, timeoutMs = 3500) {
-  const el = document.createElement("div");
-  el.className = "snackbar";
-  el.innerHTML = `
-    <div class="msg">${escapeHtml(message)}</div>
-    <button class="x" aria-label="Dismiss">×</button>
-  `;
-  $(".x", el).addEventListener("click", () => el.remove());
-  snackbarHost.appendChild(el);
-  setTimeout(() => el.remove(), timeoutMs);
-}
+  const root = document.getElementById("root");
+  const screenStyles = document.getElementById("screenStyles") || (() => {
+    const s = document.createElement("style");
+    s.id = "screenStyles";
+    document.head.appendChild(s);
+    return s;
+  })();
 
-const modalHost = $("#modalHost");
-const modalTitle = $("#modalTitle");
-const modalBody = $("#modalBody");
-const modalOk = $("#modalOk");
-function confirmModal({ title = "Confirm", body = "Are you sure?", okText = "OK" } = {}) {
-  return new Promise((resolve) => {
-    modalTitle.textContent = title;
-    modalBody.textContent = body;
-    modalOk.textContent = okText;
+  // Map each step to the provided static HTML file.
+  // (These filenames match the uploaded files.)
+  const SCREEN_FILES = {
+    dashboard: "dashboard.html",
+    guestRegistration: "refinedGuestRegistration.html",
+    returningGuest: "returningGuest.html",
+    newGuest: "newGuest.html",
+    stayDetails: "stayDetails.html",
+    bookingSummary: "bookingSummary.html",
+    cashPayment: "cashPayment.html",
+    cashPaymentSuccessful: "cashPaymentSuccessful.html",
+    cardPayment: "cardPayment.html",
+    tapToPay: "tapToPay.html",
+    cardPaymentProcessing: "cardPaymentProcessing.html",
+    cardPaymentDeclined: "cardPaymentDeclined.html",
+    cardPaymentSuccessful: "cardPaymentSuccessful.html",
+    receiptPrinted: "receiptPrinted.html"
+  };
 
-    modalHost.classList.remove("hidden");
-    modalHost.setAttribute("aria-hidden", "false");
+  const screenCache = new Map(); // key -> { css, html }
 
-    const close = (val) => {
-      modalHost.classList.add("hidden");
-      modalHost.setAttribute("aria-hidden", "true");
-      cleanup();
-      resolve(val);
-    };
+  const STORAGE_KEY = "ux_checkin_knownGuests_v1";
 
-    const onBackdrop = (e) => {
-      const act = e.target?.dataset?.action;
-      if (act === "closeModal") close(false);
-    };
-
-    const onCancel = () => close(false);
-    const onOk = () => close(true);
-    const onEsc = (e) => { if (e.key === "Escape") close(false); };
-
-    const cleanup = () => {
-      modalHost.removeEventListener("click", onBackdrop);
-      $("#modalCancel").removeEventListener("click", onCancel);
-      modalOk.removeEventListener("click", onOk);
-      document.removeEventListener("keydown", onEsc);
-    };
-
-    modalHost.addEventListener("click", onBackdrop);
-    $("#modalCancel").addEventListener("click", onCancel);
-    modalOk.addEventListener("click", onOk);
-    document.addEventListener("keydown", onEsc);
-  });
-}
-
-/* ----------------------- Data / State ----------------------- */
-const SCREENS = {
-  DASHBOARD: "dashboard",
-  GUEST_REG: "guestReg",
-  SCANNER: "scanner",
-  RETURNING: "returningGuest",
-  NEW_GUEST: "newGuest",
-  STAY_DETAILS: "stayDetails",
-  BOOKING_SUMMARY: "bookingSummary",
-  CARD_DETAILS: "cardDetails",
-  CASH_CONFIRM: "cashConfirm",
-  TAP_TO_PAY: "tapToPay",
-  PROCESSING: "processing",
-  CARD_SUCCESS: "cardSuccess",
-  CASH_SUCCESS: "cashSuccess",
-  CARD_DECLINED: "cardDeclined",
-  RECEIPT: "receiptPrinted",
-};
-
-const US_STATES = [
-  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN",
-  "MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA",
-  "WA","WV","WI","WY","DC"
-];
-
-const ROOMS = [
-  { id: "101", name: "Room 101 (King)", maxAdults: 2, maxChildren: 1, rates: [119, 129, 139] },
-  { id: "204", name: "Room 204 (Double Queen)", maxAdults: 4, maxChildren: 3, rates: [149, 159, 169] },
-  { id: "310", name: "Room 310 (Suite)", maxAdults: 4, maxChildren: 2, rates: [219, 239, 259] },
-];
-
-const appState = {
-  screen: SCREENS.DASHBOARD,
-  user: { name: "John Doe", hotel: "Example XYZ Hotels", version: "Version 1.0" },
-
-  guestForm: {
-    fullName: "",
-    streetAddress: "",
-    city: "",
-    state: "",
-    zip: "",
-    gender: "",
-    age: "",
-    dob: "",
-    idType: "",
-    idNumber: "",
-    rawAamva: "",
-    scanHints: { stateInvalid: "" }, // used to show inline scan-mismatch errors after returning to form
-  },
-
-  guestLookup: {
-    found: false,
-    guestId: null,
-    profile: null,
-  },
-
-  stay: {
-    checkIn: todayISO(),
-    checkOut: addDaysISO(todayISO(), 1),
-    adults: "1",
-    children: "0",
-    roomId: "101",
-    dailyRate: "119",
-    deposit: "0",
-    discount: "0",
-  },
-
-  booking: {
-    nights: 1,
-    total: 0,
-    bookingId: null,
-  },
-
-  payment: {
-    method: null,
-    card: { number: "", expiry: "", cvv: "", name: "", zip: "" },
-    txn: { type: "", id: "" },
-    lastOutcome: null,
-  },
-
-  scanner: {
-    stream: null,
-    stopLoop: false,
-    detector: null,
-    zxing: null,
-    zxingReader: null,
-    lastText: "",
-    lastAt: 0,
-    engineName: "…",
-    cameraState: "idle",
-  }
-};
-
-/* ----------------------- Local DB ----------------------- */
-const DB_KEY = "kiosk_guests_v1";
-function loadGuests() {
-  try { return JSON.parse(localStorage.getItem(DB_KEY) || "[]"); }
-  catch { return []; }
-}
-function saveGuests(list) { localStorage.setItem(DB_KEY, JSON.stringify(list)); }
-function seedGuestsIfEmpty() {
-  const list = loadGuests();
-  if (list.length) return;
-  saveGuests([
-    { guestId: "G-10001", fullName: "Jane Sample", idType: "DL", idNumber: "S1234567", rating: "A", activeSince: "2022-04-18", latestActivity: "2025-11-02" }
-  ]);
-}
-seedGuestsIfEmpty();
-
-/* ----------------------- Rendering ----------------------- */
-const appRoot = $("#app");
-
-function navigate(screen) {
-  appState.screen = screen;
-  render();
-}
-
-function render() {
-  appRoot.innerHTML = "";
-  const phone = document.createElement("div");
-  phone.className = "phone";
-  phone.appendChild(renderScreen());
-  appRoot.appendChild(phone);
-
-  // show scan mismatch hint if needed (after render)
-  if (appState.screen === SCREENS.GUEST_REG && appState.guestForm.scanHints.stateInvalid) {
-    setInlineError("state", appState.guestForm.scanHints.stateInvalid);
-  }
-}
-
-function renderScreen() {
-  switch (appState.screen) {
-    case SCREENS.DASHBOARD: return Dashboard();
-    case SCREENS.GUEST_REG: return GuestRegistration();
-    case SCREENS.SCANNER: return ScannerScreen();
-    case SCREENS.RETURNING: return ReturningGuest();
-    case SCREENS.NEW_GUEST: return NewGuest();
-    case SCREENS.STAY_DETAILS: return StayDetails();
-    case SCREENS.BOOKING_SUMMARY: return BookingSummary();
-    case SCREENS.CARD_DETAILS: return CardPaymentDetails();
-    case SCREENS.CASH_CONFIRM: return CashConfirm();
-    case SCREENS.TAP_TO_PAY: return TapToPay();
-    case SCREENS.PROCESSING: return PaymentProcessing();
-    case SCREENS.CARD_SUCCESS: return CardSuccess();
-    case SCREENS.CASH_SUCCESS: return CashSuccess();
-    case SCREENS.CARD_DECLINED: return CardDeclined();
-    case SCREENS.RECEIPT: return ReceiptPrinted();
-    default: return Dashboard();
-  }
-}
-
-/* ----------------------- UI helpers ----------------------- */
-function TopBar({ left = null, title = "", right = null }) {
-  const el = div("topbar");
-  const l = div("topbar-left");
-  const t = div("topbar-title");
-  const r = div("topbar-right");
-  t.textContent = title;
-  if (left) l.append(...[].concat(left));
-  if (right) r.append(...[].concat(right));
-  el.append(l, t, r);
-  return el;
-}
-function BottomBar(children) {
-  const el = div("bottombar");
-  el.append(...[].concat(children));
-  return el;
-}
-function ProgressBar(stepIndex) {
-  const p = div("progress");
-  for (let i = 0; i < 4; i++) {
-    const seg = document.createElement("div");
-    seg.className = i === stepIndex ? "on" : "";
-    p.appendChild(seg);
-  }
-  return p;
-}
-function button(text, className, onClick) {
-  const b = document.createElement("button");
-  b.className = className;
-  b.textContent = text;
-  b.addEventListener("click", onClick);
-  return b;
-}
-function iconButton(svg, aria, onClick) {
-  const b = document.createElement("button");
-  b.className = "icon-btn";
-  b.setAttribute("aria-label", aria);
-  b.innerHTML = typeof svg === "string" ? svg : String(svg);
-  b.addEventListener("click", onClick);
-  return b;
-}
-function div(cls) { const d = document.createElement("div"); d.className = cls; return d; }
-function divText(cls, txt) { const d = div(cls); d.textContent = txt; return d; }
-function elP(cls, txt) { const p = document.createElement("div"); p.className = cls; p.textContent = txt; return p; }
-
-/* ----------------------- Screens ----------------------- */
-/* 0) Dashboard */
-function Dashboard() {
-  const wrap = document.createElement("div");
-
-  const accountBtn = iconButton(ICONS.account, "Profile (not implemented)", () => showSnackbar("Profile module not included in this flow."));
-  const logoutBtn = iconButton(ICONS.logout, "Logout", async () => {
-    const ok = await confirmModal({ title: "Logout", body: "Log out and exit to login?", okText: "Logout" });
-    if (ok) showSnackbar("Logged out (demo).");
-  });
-
-  wrap.appendChild(TopBar({ title: appState.user.hotel, right: [accountBtn, logoutBtn] }));
-
-  const content = div("content");
-  content.appendChild(elP("greeting", `Good Afternoon, ${appState.user.name}.`));
-
-  content.append(
-    tile("Check-In", "primary", () => { resetFlow(); navigate(SCREENS.GUEST_REG); }),
-    tile("Check-Out", "disabled", () => showSnackbar("Check-Out is disabled in this demo.")),
-    tile("Stay-Over", "disabled", () => showSnackbar("Stay-Over is disabled in this demo."))
-  );
-
-  content.appendChild(hrOther());
-
-  const row1 = div("grid2");
-  row1.append(
-    tile("Dashboard", "disabled", () => {}),
-    tile("Bookings", "disabled", () => showSnackbar("Bookings module not part of this flow."))
-  );
-  const row2 = div("grid2");
-  row2.append(
-    tile("Reports", "disabled", () => showSnackbar("Reports module not part of this flow.")),
-    tile("Payments", "disabled", () => showSnackbar("Payments module not part of this flow."))
-  );
-
-  content.append(row1, row2);
-
-  wrap.appendChild(content);
-  wrap.appendChild(divText("footer", appState.user.version));
-  return wrap;
-}
-
-/* 1) Guest Registration */
-function GuestRegistration() {
-  const wrap = document.createElement("div");
-  const backBtn = iconButton(ICONS.back, "Back", () => navigate(SCREENS.DASHBOARD));
-  const scanBtn = iconButton(ICONS.scan, "Scan ID", () => navigate(SCREENS.SCANNER));
-
-  wrap.appendChild(TopBar({ left: backBtn, title: "Guest Registration", right: scanBtn }));
-  wrap.appendChild(ProgressBar(0));
-
-  const content = div("content");
-  content.appendChild(GuestForm());
-  wrap.appendChild(content);
-
-  const nextBtn = button("Next", "btn btn-primary", onGuestNext);
-  wrap.appendChild(BottomBar(nextBtn));
-  return wrap;
-}
-
-function GuestForm() {
-  const form = div("form");
-  form.append(
-    inputField("Full Name*", "fullName", "Enter Full Name"),
-    inputField("Street Address*", "streetAddress", "Enter Street Address"),
-    inputField("City*", "city", "Enter City"),
-    row(
-      selectField("State*", "state", ["", ...US_STATES], "Select"),
-      inputField("Zip Code*", "zip", "5-digit ZIP code", { inputmode: "numeric" })
-    ),
-    row(
-      selectField("Gender*", "gender", ["", "Male", "Female", "Other"], "Select"),
-      inputField("Age*", "age", "00", { inputmode: "numeric" })
-    ),
-    selectField("Type of Identification", "idType", ["", "DL", "ID"], "Select"),
-    inputField("Identification Number*", "idNumber", "0000000000")
-  );
-  return form;
-}
-
-/**
- * UPDATED: Next now triggers lookup and routes to Returning/New guest screens.
- * (Scanner no longer routes there automatically.)
- */
-async function onGuestNext() {
-  const errors = validateGuestForm(appState.guestForm);
-  clearInlineErrors();
-
-  // keep scan mismatch error if present
-  if (appState.guestForm.scanHints.stateInvalid) {
-    setInlineError("state", appState.guestForm.scanHints.stateInvalid);
-  }
-
-  if (Object.keys(errors).length) {
-    Object.entries(errors).forEach(([k, msg]) => setInlineError(k, msg));
-    showSnackbar("Please Complete All the Required Fields."); // 12
-    return;
-  }
-
-  // lookup by idType+idNumber; if idType not set, lookup by idNumber only
-  const lookup = lookupGuest(appState.guestForm.idType, appState.guestForm.idNumber);
-
-  if (lookup.found) {
-    appState.guestLookup.found = true;
-    appState.guestLookup.guestId = lookup.profile.guestId;
-    appState.guestLookup.profile = lookup.profile;
-    navigate(SCREENS.RETURNING);
-  } else {
-    appState.guestLookup.found = false;
-    appState.guestLookup.guestId = null;
-    appState.guestLookup.profile = null;
-    navigate(SCREENS.NEW_GUEST);
-  }
-}
-
-/* 2) Scanner */
-function ScannerScreen() {
-  const wrap = document.createElement("div");
-
-  const closeBtn = iconButton(ICONS.close, "Close", async () => {
-    await stopScanner();
-    navigate(SCREENS.GUEST_REG);
-  });
-
-  const torchBtn = iconButton(`<span style="font-size:14px;font-weight:800;">⚡</span>`, "Toggle Torch", async () => {
-    await toggleTorch();
-  });
-
-  wrap.appendChild(TopBar({ left: closeBtn, title: "Scanner", right: torchBtn }));
-
-  const content = div("content");
-
-  const viewerCard = div("scanner-wrap");
-  const viewer = document.createElement("div");
-  viewer.className = "viewer";
-
-  const video = document.createElement("video");
-  video.id = "scannerVideo";
-  video.setAttribute("playsinline", "");
-  video.muted = true;
-
-  const hud = div("hud");
-  hud.appendChild(div("frame"));
-
-  viewer.append(video, hud);
-  viewerCard.appendChild(viewer);
-
-  const meta = document.createElement("div");
-  meta.className = "meta-row";
-  meta.innerHTML = `
-    <span class="pill ${appState.scanner.detector || appState.scanner.zxingReader ? "ok" : ""}" id="enginePill">Engine: ${escapeHtml(appState.scanner.engineName || "…")}</span>
-    <span class="pill ${appState.scanner.cameraState === "running" ? "ok" : ""}" id="cameraPill">Camera: ${escapeHtml(appState.scanner.cameraState || "idle")}</span>
-  `;
-
-  const controls = div("card");
-  controls.appendChild(meta);
-
-  const startBtn = button("Start Camera", "btn btn-primary", async () => {
-    try {
-      await initScannerEngine();
-      await startScanner(video);
-      showSnackbar("Scanning…");
-      updateScannerPills();
-    } catch (e) {
-      console.error(e);
-      showSnackbar("Camera blocked. Enable camera permissions for this site.");
+  /** @type {{guest:any, stay:any, booking:any, payment:any}} */
+  const state = {
+    guest: {
+      fullName: "",
+      streetAddress: "",
+      city: "",
+      state: "",
+      zip: "",
+      gender: "",
+      age: "",
+      idType: "",
+      idNumber: ""
+    },
+    stay: {
+      checkin: "",
+      checkout: "",
+      adults: "",
+      children: "",
+      room: "",
+      rate: "",
+      deposit: "",
+      discount: ""
+    },
+    booking: {
+      days: 0,
+      rateAmount: 0,
+      total: 0,
+      bookingId: "",
+      transactionId: ""
+    },
+    payment: {
+      method: "",     // "cash" | "card"
+      cardMode: ""    // "tap" | "manual"
     }
+  };
+
+  const RATE_MAP = {
+    "king-75": 75,
+    "queen-65": 65,
+    "double-85": 85,
+    "studio-75": 75,
+    "studio-weekly-50": 50
+  };
+
+  let processingTimer = null;
+  let renderToken = 0;
+
+  function loadKnownGuests() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveKnownGuests(list) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch {}
+  }
+
+  function upsertKnownGuest(idNumber, fullName) {
+    const list = loadKnownGuests();
+    const idx = list.findIndex(x => x && x.idNumber === idNumber);
+    const item = { idNumber, fullName: fullName || "" };
+    if (idx >= 0) list[idx] = { ...list[idx], ...item };
+    else list.push(item);
+    saveKnownGuests(list);
+  }
+
+  function isReturningGuest(idNumber) {
+    const list = loadKnownGuests();
+    if (list.some(x => x && x.idNumber === idNumber)) return true;
+
+    // Heuristic to ensure usability tests can exercise both paths on first run:
+    // even last digit => returning.
+    const last = (idNumber || "").replace(/\D/g, "").slice(-1);
+    if (!last) return false;
+    return Number(last) % 2 === 0;
+  }
+
+  function randDigits(len) {
+    let out = "";
+    for (let i = 0; i < len; i++) out += String(Math.floor(Math.random() * 10));
+    return out;
+  }
+
+  function money(n) {
+    const num = Number.isFinite(n) ? n : 0;
+    return `$ ${num.toFixed(2)}`;
+  }
+
+  function parseMoneyLike(v) {
+    const s = String(v ?? "").trim();
+    if (!s) return 0;
+    const cleaned = s.replace(/[^0-9.\-]/g, "");
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function toISODate(d) {
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
+  }
+
+  function formatDateTime(dateStr, kind) {
+    // kind: "checkin" => 2pm, "checkout" => 11am
+    if (!dateStr) return "Time and Date";
+    const base = new Date(dateStr + "T00:00:00");
+    if (Number.isNaN(base.getTime())) return "Time and Date";
+    if (kind === "checkin") base.setHours(14, 0, 0, 0);
+    else if (kind === "checkout") base.setHours(11, 0, 0, 0);
+    else base.setHours(12, 0, 0, 0);
+
+    return base.toLocaleString("en-US", {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    });
+  }
+
+  function calcDays(checkin, checkout) {
+    if (!checkin || !checkout) return 0;
+    const d1 = new Date(checkin + "T00:00:00");
+    const d2 = new Date(checkout + "T00:00:00");
+    if (Number.isNaN(d1.getTime()) || Number.isNaN(d2.getTime())) return 0;
+    const diff = Math.round((d2 - d1) / 86400000);
+    return diff < 1 ? 1 : diff;
+  }
+
+  function recomputeBooking() {
+    const days = calcDays(state.stay.checkin, state.stay.checkout);
+    const rateAmount = RATE_MAP[state.stay.rate] ?? 0;
+    const deposit = parseMoneyLike(state.stay.deposit);
+    const discount = parseMoneyLike(state.stay.discount);
+    const total = (days * rateAmount) + deposit - discount;
+
+    state.booking.days = days;
+    state.booking.rateAmount = rateAmount;
+    state.booking.total = Number.isFinite(total) ? total : 0;
+
+    if (!state.booking.bookingId) state.booking.bookingId = randDigits(10);
+    if (!state.booking.transactionId) state.booking.transactionId = randDigits(13);
+  }
+
+  async function getScreen(key) {
+    if (!SCREEN_FILES[key]) key = "dashboard";
+    if (screenCache.has(key)) return screenCache.get(key);
+
+    const file = SCREEN_FILES[key];
+    const res = await fetch(file, { cache: "no-cache" });
+    if (!res.ok) throw new Error(`Failed to load ${file}: ${res.status}`);
+    const text = await res.text();
+
+    const doc = new DOMParser().parseFromString(text, "text/html");
+
+    // Extract styles as-is.
+    const css = $$("style", doc).map(s => s.textContent || "").join("\n\n").trim();
+
+    // Remove scripts so we can wire the flow from this single app.js.
+    $$("script", doc).forEach(s => s.remove());
+
+    // Use body markup as-is.
+    const html = (doc.body ? doc.body.innerHTML : "").trim();
+
+    const out = { css, html };
+    screenCache.set(key, out);
+    return out;
+  }
+
+  async function render(key) {
+    // Prevent out-of-order async renders if the user clicks quickly.
+    const token = ++renderToken;
+
+    if (processingTimer) {
+      clearTimeout(processingTimer);
+      processingTimer = null;
+    }
+
+    // Small placeholder while loading.
+    root.innerHTML = "";
+    screenStyles.textContent = "";
+
+    const screen = await getScreen(key);
+    if (token !== renderToken) return;
+
+    screenStyles.textContent = screen.css || "";
+    root.innerHTML = screen.html || "";
+
+    bind(key);
+  }
+
+  function go(key, opts = {}) {
+    if (!SCREEN_FILES[key]) key = "dashboard";
+    const url = `#${key}`;
+    if (opts.replace) history.replaceState({ screen: key }, "", url);
+    else history.pushState({ screen: key }, "", url);
+    render(key).catch(console.error);
+  }
+
+  function boot() {
+    const initial = (location.hash || "").replace("#", "") || "dashboard";
+    const start = SCREEN_FILES[initial] ? initial : "dashboard";
+    history.replaceState({ screen: start }, "", `#${start}`);
+    render(start).catch(console.error);
+  }
+
+  window.addEventListener("popstate", (e) => {
+    const key = e.state?.screen || (location.hash || "").replace("#", "") || "dashboard";
+    render(SCREEN_FILES[key] ? key : "dashboard").catch(console.error);
   });
 
-  const stopBtn = button("Stop", "btn btn-danger", async () => {
-    await stopScanner();
-    updateScannerPills();
-    showSnackbar("Stopped.");
-  });
-  stopBtn.style.marginTop = "10px";
+  // Row-based helper for the provided designs.
+  function setRowValue(label, value) {
+    const rows = $$(".row", root);
+    for (const r of rows) {
+      const l = $(".left", r);
+      const v = $(".right", r);
+      if (!l || !v) continue;
+      if (l.textContent.trim() === label) {
+        v.textContent = value;
+        return true;
+      }
+    }
+    return false;
+  }
 
-  const photoLabel = document.createElement("label");
-  photoLabel.className = "btn";
-  photoLabel.style.display = "grid";
-  photoLabel.style.placeItems = "center";
-  photoLabel.style.marginTop = "10px";
-  photoLabel.style.cursor = "pointer";
-  photoLabel.innerHTML = `
-    Scan from Photo
-    <input id="scanFile" type="file" accept="image/*" class="hidden"/>
-  `;
+  function bind(screenKey) {
+    switch (screenKey) {
+      case "dashboard": return bindDashboard();
+      case "guestRegistration": return bindGuestRegistration();
+      case "returningGuest": return bindReturningGuest();
+      case "newGuest": return bindNewGuest();
+      case "stayDetails": return bindStayDetails();
+      case "bookingSummary": return bindBookingSummary();
+      case "cashPayment": return bindCashPayment();
+      case "cashPaymentSuccessful": return bindCashSuccess();
+      case "cardPayment": return bindCardPayment();
+      case "tapToPay": return bindTapToPay();
+      case "cardPaymentProcessing": return; // passive
+      case "cardPaymentDeclined": return bindCardDeclined();
+      case "cardPaymentSuccessful": return bindCardSuccess();
+      case "receiptPrinted": return bindReceiptPrinted();
+      default: return bindDashboard();
+    }
+  }
 
-  const tip = document.createElement("div");
-  tip.style.marginTop = "10px";
-  tip.style.fontSize = "12px";
-  tip.style.color = "#666";
-  tip.textContent = "Tip: PDF417 needs sharp focus + bright light. Hold steady and close enough to fill the frame.";
+  // =========================
+  // Screen bindings
+  // =========================
+  function bindDashboard() {
+    const checkinCard = $$(".card", root).find(c => c.textContent.trim() === "Check-In") || $(".card.primary", root);
+    if (checkinCard) {
+      checkinCard.style.cursor = "pointer";
+      checkinCard.addEventListener("click", () => go("guestRegistration"));
+      checkinCard.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go("guestRegistration"); }
+      });
+      checkinCard.setAttribute("tabindex", "0");
+      checkinCard.setAttribute("role", "button");
+      checkinCard.setAttribute("aria-label", "Open Check-In");
+    }
+  }
 
-  controls.append(startBtn, stopBtn, photoLabel, tip);
+  function bindGuestRegistration() {
+    const form = $("#guestForm", root);
+    const nextBtn = $(".primary-btn", root);
+    const backBtn = $(".icon-btn[aria-label='Back']", root);
+    const openScannerBtn = $("#openScannerBtn", root);
 
-  content.append(viewerCard, controls);
-  wrap.appendChild(content);
+    const scannerScreen = $("#scannerScreen", root);
+    const closeScannerBtn = $("#closeBtn", root);
+    const flashBtn = $("#flashBtn", root);
 
-  setTimeout(() => {
-    const file = $("#scanFile");
-    if (file) {
-      file.addEventListener("change", async (e) => {
-        const f = e.target.files?.[0];
-        try {
-          await initScannerEngine();
-          await scanImageFile(f);
-        } catch (err) {
-          console.error(err);
-          showSnackbar("Could not decode that image.");
-        } finally {
-          e.target.value = "";
-        }
+    const getVal = (id) => ($("#" + id, root)?.value ?? "").trim();
+    const setVal = (id, val) => { const el = $("#" + id, root); if (el) el.value = val ?? ""; };
+
+    // Restore any previous state.
+    setVal("fullName", state.guest.fullName);
+    setVal("streetAddress", state.guest.streetAddress);
+    setVal("city", state.guest.city);
+    setVal("state", state.guest.state);
+    setVal("zip", state.guest.zip);
+    setVal("gender", state.guest.gender);
+    setVal("age", state.guest.age);
+    setVal("idType", state.guest.idType);
+    setVal("idNumber", state.guest.idNumber);
+
+    if (backBtn) backBtn.addEventListener("click", () => go("dashboard"));
+
+    if (nextBtn) {
+      nextBtn.addEventListener("click", () => {
+        if (form && typeof form.reportValidity === "function" && !form.reportValidity()) return;
+
+        state.guest = {
+          fullName: getVal("fullName"),
+          streetAddress: getVal("streetAddress"),
+          city: getVal("city"),
+          state: getVal("state"),
+          zip: getVal("zip"),
+          gender: getVal("gender"),
+          age: getVal("age"),
+          idType: getVal("idType"),
+          idNumber: getVal("idNumber")
+        };
+
+        // New check-in flow => new booking IDs.
+        state.booking.bookingId = "";
+        state.booking.transactionId = "";
+
+        const returning = isReturningGuest(state.guest.idNumber);
+        go(returning ? "returningGuest" : "newGuest");
       });
     }
-  }, 0);
 
-  return wrap;
-}
+    function closeScanner() {
+      if (scannerScreen) scannerScreen.classList.remove("is-open");
+    }
 
-/* 3A) Returning Guest */
-function ReturningGuest() {
-  const wrap = document.createElement("div");
-  const closeBtn = iconButton(ICONS.close, "Cancel", () => navigate(SCREENS.GUEST_REG));
-  wrap.appendChild(TopBar({ left: closeBtn, title: "Returning Guest", right: null }));
+    function openScanner() {
+      if (!scannerScreen) return;
+      scannerScreen.classList.add("is-open");
 
-  const content = div("content");
+      // Simulated scan: tap in the camera area to autofill.
+      const cameraArea = $(".camera-area", root);
+      const scanWindow = $(".scan-window", root);
 
-  const p = appState.guestLookup.profile || {};
-  const card = div("card");
-  card.innerHTML = `
-    <div class="summary-row"><b>Name</b><span>${escapeHtml(p.fullName || "")}</span></div>
-    <div class="summary-row"><b>ID</b><span>${escapeHtml(`${p.idType || ""} ${p.idNumber || ""}`)}</span></div>
-    <div class="summary-row"><b>Rating</b><span>${escapeHtml(p.rating || "—")}</span></div>
-    <div class="summary-row"><b>Active since</b><span>${escapeHtml(p.activeSince || "—")}</span></div>
-    <div class="summary-row"><b>Latest activity</b><span>${escapeHtml(p.latestActivity || "—")}</span></div>
-  `;
+      const fillFromScan = () => {
+        setVal("fullName", "Jordan Taylor");
+        setVal("streetAddress", "123 Main St");
+        setVal("city", "Chicago");
+        setVal("state", "IL");
+        setVal("zip", "60601");
+        setVal("gender", "Male");
+        setVal("age", "32");
+        setVal("idType", "DL");
+        setVal("idNumber", "A123456789");
+        closeScanner();
+      };
 
-  const actions = div("actions-row");
-  actions.append(
-    button("Cancel", "btn", () => navigate(SCREENS.GUEST_REG)),
-    button("Proceed", "btn btn-primary", () => navigate(SCREENS.STAY_DETAILS))
-  );
+      let autoTimer = setTimeout(fillFromScan, 1200);
 
-  content.append(card, actions);
-  wrap.appendChild(content);
-  return wrap;
-}
+      const onTap = (e) => {
+        e.preventDefault();
+        clearTimeout(autoTimer);
+        fillFromScan();
+        cleanup();
+      };
 
-/* 3B) New Guest */
-function NewGuest() {
-  const wrap = document.createElement("div");
-  const closeBtn = iconButton(ICONS.close, "Cancel", () => navigate(SCREENS.GUEST_REG));
-  wrap.appendChild(TopBar({ left: closeBtn, title: "New User", right: null }));
+      const cleanup = () => {
+        cameraArea?.removeEventListener("click", onTap);
+        scanWindow?.removeEventListener("click", onTap);
+      };
 
-  const content = div("content");
-  const g = appState.guestForm;
+      cameraArea?.addEventListener("click", onTap, { once: true });
+      scanWindow?.addEventListener("click", onTap, { once: true });
 
-  const hero = div("card");
-  hero.innerHTML = `
-    <div class="state">
-      <div class="big">New User</div>
-      <div class="badge">No matching guest found</div>
-    </div>
-    <div class="summary-row"><b>Full name</b><span>${escapeHtml(g.fullName || "—")}</span></div>
-    <div class="summary-row"><b>ID</b><span>${escapeHtml(`${g.idType || "—"} ${g.idNumber || "—"}`)}</span></div>
-  `;
+      closeScannerBtn?.addEventListener("click", () => {
+        clearTimeout(autoTimer);
+        cleanup();
+        closeScanner();
+      }, { once: true });
+    }
 
-  const actions = div("actions-row");
-  const skip = button("Skip", "btn", () => {
-    appState.guestLookup.guestId = null;
-    navigate(SCREENS.STAY_DETAILS);
-  });
+    if (openScannerBtn) openScannerBtn.addEventListener("click", openScanner);
+    closeScannerBtn?.addEventListener("click", closeScanner);
 
-  const save = button("Save", "btn btn-primary", () => {
-    const guests = loadGuests();
-    const guestId = `G-${Math.floor(10000 + Math.random() * 89999)}`;
-    guests.push({
-      guestId,
-      fullName: appState.guestForm.fullName,
-      idType: (appState.guestForm.idType || "DL"),
-      idNumber: appState.guestForm.idNumber,
-      rating: "B",
-      activeSince: todayISO(),
-      latestActivity: todayISO(),
+    if (flashBtn) {
+      flashBtn.addEventListener("click", () => {
+        flashBtn.classList.toggle("flash-active");
+        const pressed = flashBtn.getAttribute("aria-pressed") === "true";
+        flashBtn.setAttribute("aria-pressed", String(!pressed));
+      });
+    }
+  }
+
+  function bindReturningGuest() {
+    setRowValue("Guest", state.guest.fullName || "Full Name");
+    setRowValue("ID Number", state.guest.idNumber || "0000000000");
+    setRowValue("ID Type", state.guest.idType || "ID/DL/Passport");
+    setRowValue("Rating", "4.6");
+
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 1);
+    setRowValue("Active Since", d.toLocaleString("en-US", { month: "short", day: "2-digit", year: "numeric" }));
+    setRowValue("Latest Activity", new Date().toLocaleString("en-US", { month: "short", day: "2-digit", year: "numeric" }));
+
+    const btns = $$(".btn", root);
+    btns.find(b => b.textContent.trim() === "Cancel")?.addEventListener("click", () => go("dashboard"));
+    btns.find(b => b.textContent.trim() === "Proceed")?.addEventListener("click", () => go("stayDetails"));
+  }
+
+  function bindNewGuest() {
+    setRowValue("Guest", state.guest.fullName || "Full Name");
+    setRowValue("ID Number", state.guest.idNumber || "0000000000");
+    setRowValue("ID Type", state.guest.idType || "ID/DL/Passport");
+
+    const btns = $$(".btn", root);
+    btns.find(b => b.textContent.trim() === "Skip")?.addEventListener("click", () => go("stayDetails"));
+
+    btns.find(b => b.textContent.trim() === "Save")?.addEventListener("click", () => {
+      if (state.guest.idNumber) upsertKnownGuest(state.guest.idNumber, state.guest.fullName);
+      go("stayDetails");
     });
-    saveGuests(guests);
-    appState.guestLookup.guestId = guestId;
-    showSnackbar("Guest saved.");
-    navigate(SCREENS.STAY_DETAILS);
-  });
+  }
 
-  actions.append(skip, save);
-  content.append(hero, actions);
-  wrap.appendChild(content);
-  return wrap;
-}
+  function bindStayDetails() {
+    const backBtn = $(".icon-btn.back", root);
+    const closeBtn = $(".icon-btn.close", root);
+    const nextBtn = $(".primary-btn", root);
 
-/* 4) Stay Details */
-function StayDetails() {
-  const wrap = document.createElement("div");
-  const closeBtn = iconButton(ICONS.close, "Close", async () => {
-    const ok = await confirmModal({ title: "Discard check-in?", body: "Discard this check-in flow?", okText: "Discard" });
-    if (ok) { resetFlow(); navigate(SCREENS.DASHBOARD); }
-  });
-  wrap.appendChild(TopBar({ left: closeBtn, title: "Stay Details", right: null }));
-  wrap.appendChild(ProgressBar(1));
+    const checkin = $("#checkin", root);
+    const checkout = $("#checkout", root);
+    const adults = $("#adults", root);
+    const children = $("#children", root);
+    const room = $("#room", root);
+    const rate = $("#rate", root);
+    const deposit = $("#deposit", root);
+    const discount = $("#discount", root);
 
-  const content = div("content");
-  const form = div("form");
-
-  form.append(
-    dateField("Check-in date", "checkIn"),
-    dateField("Check-out date", "checkOut"),
-    row(
-      selectStayField("Adults", "adults", ["1","2","3","4"]),
-      selectStayField("Children", "children", ["0","1","2","3","4"])
-    ),
-    selectStayField("Select Room", "roomId", ROOMS.map(r => r.id), null, roomLabelById),
-    selectStayField("Daily Rate", "dailyRate", dailyRateOptionsForRoom(appState.stay.roomId), null, (v)=> `$${v}`),
-    inputStayField("Deposit", "deposit", { inputmode: "decimal" }),
-    inputStayField("Discount", "discount", { inputmode: "decimal" })
-  );
-
-  const nextBtn = button("Next", "btn btn-primary", () => {
-    const errs = validateStay(appState.stay);
-    clearInlineErrors();
-    if (Object.keys(errs).length) {
-      Object.entries(errs).forEach(([k, msg]) => setInlineError(k, msg));
-      showSnackbar("Please complete required stay details.");
-      return;
+    // Default dates if blank (mirrors the intent of the original inline script).
+    if (checkin && checkout && (!checkin.value && !checkout.value)) {
+      const d1 = new Date();
+      const d2 = new Date();
+      d2.setDate(d1.getDate() + 2);
+      checkin.value = toISODate(d1);
+      checkout.value = toISODate(d2);
     }
-    computeBooking();
-    navigate(SCREENS.BOOKING_SUMMARY);
-  });
 
-  content.append(form);
-  wrap.appendChild(content);
-  wrap.appendChild(BottomBar(nextBtn));
-  return wrap;
-}
+    // Restore state.
+    if (checkin && state.stay.checkin) checkin.value = state.stay.checkin;
+    if (checkout && state.stay.checkout) checkout.value = state.stay.checkout;
+    if (adults && state.stay.adults) adults.value = state.stay.adults;
+    if (children && state.stay.children) children.value = state.stay.children;
+    if (room && state.stay.room) room.value = state.stay.room;
+    if (rate && state.stay.rate) rate.value = state.stay.rate;
+    if (deposit && state.stay.deposit) deposit.value = state.stay.deposit;
+    if (discount && state.stay.discount) discount.value = state.stay.discount;
 
-/* 5) Booking Summary */
-function BookingSummary() {
-  const wrap = document.createElement("div");
-  const backBtn = iconButton(ICONS.back, "Back", () => navigate(SCREENS.STAY_DETAILS));
-  const closeBtn = iconButton(ICONS.close, "Close", async () => {
-    const ok = await confirmModal({ title: "Discard check-in?", body: "Discard this check-in flow?", okText: "Discard" });
-    if (ok) { resetFlow(); navigate(SCREENS.DASHBOARD); }
-  });
+    backBtn?.addEventListener("click", () => history.back());
+    closeBtn?.addEventListener("click", () => go("dashboard"));
 
-  wrap.appendChild(TopBar({ left: backBtn, title: "Booking Summary", right: closeBtn }));
-  wrap.appendChild(ProgressBar(2));
+    nextBtn?.addEventListener("click", () => {
+      state.stay = {
+        checkin: checkin?.value || "",
+        checkout: checkout?.value || "",
+        adults: adults?.value || "",
+        children: children?.value || "",
+        room: room?.value || "",
+        rate: rate?.value || "",
+        deposit: deposit?.value || "",
+        discount: discount?.value || ""
+      };
 
-  const content = div("content");
-
-  const guestName = appState.guestForm.fullName || "(Guest)";
-  const roomName = roomLabelById(appState.stay.roomId);
-  const nights = appState.booking.nights;
-  const rate = Number(appState.stay.dailyRate || 0);
-  const deposit = Number(appState.stay.deposit || 0);
-  const discount = Number(appState.stay.discount || 0);
-  const total = appState.booking.total;
-
-  const summary = div("card");
-  summary.innerHTML = `
-    <div class="summary-row"><b>Guest</b><span>${escapeHtml(guestName)}</span></div>
-    <div class="summary-row"><b>Check-in</b><span>${escapeHtml(appState.stay.checkIn)}</span></div>
-    <div class="summary-row"><b>Check-out</b><span>${escapeHtml(appState.stay.checkOut)}</span></div>
-    <div class="summary-row"><b>Nights</b><span>${nights}</span></div>
-    <div class="summary-row"><b>Room</b><span>${escapeHtml(roomName)}</span></div>
-    <div class="summary-row"><b>Guests</b><span>${escapeHtml(`${appState.stay.adults} Adults, ${appState.stay.children} Children`)}</span></div>
-    <div class="summary-row"><b>Daily rate</b><span>$${rate.toFixed(2)}</span></div>
-    <div class="summary-row"><b>Deposit</b><span>$${deposit.toFixed(2)}</span></div>
-    <div class="summary-row"><b>Discount</b><span>-$${discount.toFixed(2)}</span></div>
-  `;
-
-  const totalCard = div("card");
-  totalCard.innerHTML = `<div class="summary-row"><b>Total Amount</b><span><b>$${total.toFixed(2)}</b></span></div>`;
-
-  const actions = div("actions-row");
-  actions.append(
-    button("Cash", "btn", () => { appState.payment.method = "cash"; navigate(SCREENS.CASH_CONFIRM); }),
-    button("Confirm Card", "btn btn-primary", () => { appState.payment.method = "card"; navigate(SCREENS.CARD_DETAILS); })
-  );
-
-  content.append(summary, totalCard, actions);
-  wrap.appendChild(content);
-  return wrap;
-}
-
-/* 6A) Card details */
-function CardPaymentDetails() {
-  const wrap = document.createElement("div");
-  const backBtn = iconButton(ICONS.back, "Back", () => navigate(SCREENS.BOOKING_SUMMARY));
-  const closeBtn = iconButton(ICONS.close, "Close", async () => {
-    const ok = await confirmModal({ title: "Discard check-in?", body: "Discard this check-in flow?", okText: "Discard" });
-    if (ok) { resetFlow(); navigate(SCREENS.DASHBOARD); }
-  });
-  wrap.appendChild(TopBar({ left: backBtn, title: "Card Payment", right: closeBtn }));
-
-  const content = div("content");
-  const totalCard = div("card");
-  totalCard.innerHTML = `<div class="summary-row"><b>Total Amount</b><span><b>$${appState.booking.total.toFixed(2)}</b></span></div>`;
-
-  const tapBtn = button("Tap to Pay", "btn", () => navigate(SCREENS.TAP_TO_PAY));
-
-  const manual = div("card");
-  manual.innerHTML = `<div style="font-weight:800;margin-bottom:10px;">Manual Card Entry</div>`;
-  const manualForm = div("form");
-  manualForm.style.gap = "14px";
-  manualForm.append(
-    inputPayment("Card number", "number", "•••• •••• •••• ••••"),
-    row(
-      inputPayment("Expiry", "expiry", "MM/YY"),
-      inputPayment("CVV", "cvv", "•••", { inputmode: "numeric" })
-    ),
-    inputPayment("Name", "name", "Name on card"),
-    inputPayment("ZIP", "zip", "ZIP", { inputmode: "numeric" })
-  );
-  manual.append(manualForm);
-
-  const proceed = button("Proceed to Pay", "btn btn-primary", () => {
-    const c = appState.payment.card;
-    const any = [c.number, c.expiry, c.cvv, c.name, c.zip].some(v => (v || "").trim().length);
-    clearInlineErrors();
-
-    if (any) {
-      const errs = {};
-      if (!c.number.trim()) errs["card_number"] = "Required";
-      if (!c.expiry.trim()) errs["card_expiry"] = "Required";
-      if (!c.cvv.trim()) errs["card_cvv"] = "Required";
-      if (!c.name.trim()) errs["card_name"] = "Required";
-      if (!c.zip.trim()) errs["card_zip"] = "Required";
-
-      if (Object.keys(errs).length) {
-        Object.entries(errs).forEach(([k, msg]) => setInlineError(k, msg));
-        showSnackbar("Please complete all required card fields.");
+      if (!state.stay.checkin || !state.stay.checkout || !state.stay.room || !state.stay.rate) {
+        alert("Please complete Check-in, Check-out, Room, and Daily Rate.");
         return;
       }
-    }
 
-    appState.payment.txn.type = any ? "Manual Card" : "NFC";
-    navigate(SCREENS.PROCESSING);
-    startProcessingOutcome();
-  });
+      recomputeBooking();
+      go("bookingSummary");
+    });
+  }
 
-  content.append(totalCard, tapBtn, manual, proceed);
-  wrap.appendChild(content);
-  return wrap;
-}
+  function bindBookingSummary() {
+    const backBtn = $(".icon-btn.back", root);
+    const closeBtn = $(".icon-btn.close", root);
+    const cashBtn = $$(".btn", root).find(b => b.textContent.trim() === "Cash");
+    const cardBtn = $$(".btn", root).find(b => b.textContent.trim() === "Card");
 
-/* 6B) Cash confirm */
-function CashConfirm() {
-  const wrap = document.createElement("div");
-  const backBtn = iconButton(ICONS.back, "Back", () => navigate(SCREENS.BOOKING_SUMMARY));
-  const closeBtn = iconButton(ICONS.close, "Close", async () => {
-    const ok = await confirmModal({ title: "Discard check-in?", body: "Discard this check-in flow?", okText: "Discard" });
-    if (ok) { resetFlow(); navigate(SCREENS.DASHBOARD); }
-  });
-  wrap.appendChild(TopBar({ left: backBtn, title: "Cash Payment", right: closeBtn }));
+    recomputeBooking();
 
-  const content = div("content");
-  const hero = div("card");
-  hero.innerHTML = `
-    <div class="state">
-      <div class="big">Record Cash Payment</div>
-      <div class="badge">Total: $${appState.booking.total.toFixed(2)}</div>
-    </div>
-  `;
+    setRowValue("Guest", state.guest.fullName || "Full Name");
+    setRowValue("Check-in", formatDateTime(state.stay.checkin, "checkin"));
+    setRowValue("Check-out", formatDateTime(state.stay.checkout, "checkout"));
+    setRowValue("No. of Days", String(state.booking.days || 0));
+    setRowValue("Room Number", state.stay.room || "000");
 
-  content.append(hero, button("Yes", "btn btn-primary", () => {
-    appState.payment.txn.type = "Cash";
-    navigate(SCREENS.CASH_SUCCESS);
-  }));
+    const guestCount = (parseInt(state.stay.adults || "0", 10) || 0) + (parseInt(state.stay.children || "0", 10) || 0);
+    setRowValue("Guests", String(guestCount));
 
-  wrap.appendChild(content);
-  return wrap;
-}
+    setRowValue("Daily Rate", money(state.booking.rateAmount));
+    setRowValue("Deposit", money(parseMoneyLike(state.stay.deposit)));
+    setRowValue("Discount", money(parseMoneyLike(state.stay.discount)));
+    setRowValue("Total Amount", money(state.booking.total));
 
-/* 7) Tap to Pay */
-function TapToPay() {
-  const wrap = document.createElement("div");
-  const closeBtn = iconButton(ICONS.close, "Close", () => navigate(SCREENS.CARD_DETAILS));
-  wrap.appendChild(TopBar({ left: closeBtn, title: "Tap to Pay", right: null }));
+    backBtn?.addEventListener("click", () => history.back());
+    closeBtn?.addEventListener("click", () => go("dashboard"));
 
-  const content = div("content");
-  const card1 = div("card");
-  card1.innerHTML = `
-    <div class="state">
-      <div class="big">NFC Ready</div>
-      <div class="badge">Hold card/phone near reader</div>
-    </div>
-  `;
-  const card2 = div("card");
-  card2.innerHTML = `
-    <div class="summary-row"><b>Guest</b><span>${escapeHtml(appState.guestForm.fullName || "(Guest)")}</span></div>
-    <div class="summary-row"><b>Room</b><span>${escapeHtml(roomLabelById(appState.stay.roomId))}</span></div>
-    <div class="summary-row"><b>Total</b><span><b>$${appState.booking.total.toFixed(2)}</b></span></div>
-  `;
-  const simulate = button("Simulate Tap", "btn btn-primary", () => {
-    appState.payment.txn.type = "NFC";
-    navigate(SCREENS.PROCESSING);
-    startProcessingOutcome();
-  });
+    cashBtn?.addEventListener("click", () => {
+      state.payment.method = "cash";
+      state.payment.cardMode = "";
+      go("cashPayment");
+    });
 
-  const note = document.createElement("div");
-  note.style.fontSize = "12px";
-  note.style.color = "#666";
-  note.textContent = "Browsers can’t access real NFC payment hardware here, so this demo includes Simulate Tap.";
+    cardBtn?.addEventListener("click", () => {
+      state.payment.method = "card";
+      state.payment.cardMode = "";
+      go("cardPayment");
+    });
+  }
 
-  content.append(card1, card2, simulate, note);
-  wrap.appendChild(content);
-  return wrap;
-}
+  function bindCashPayment() {
+    const backBtn = $(".icon-btn[aria-label='Back']", root);
+    const closeBtn = $(".icon-btn[aria-label='Close']", root);
+    const yesBtn = $(".primary-btn", root);
 
-/* 8) Processing */
-function PaymentProcessing() {
-  const wrap = document.createElement("div");
-  wrap.appendChild(TopBar({ left: null, title: "Payment Processing…", right: null }));
-  const content = div("content");
-  const card = div("card");
-  card.innerHTML = `<div class="state"><div class="big">Payment Processing…</div><div class="badge">Please wait</div></div>`;
-  content.append(card);
-  wrap.appendChild(content);
-  return wrap;
-}
+    recomputeBooking();
+    setRowValue("Total Amount", money(state.booking.total));
 
-/* 9A) Card success */
-function CardSuccess() {
-  const wrap = document.createElement("div");
-  wrap.appendChild(TopBar({ left: null, title: "Payment Successful", right: null }));
+    backBtn?.addEventListener("click", () => history.back());
+    closeBtn?.addEventListener("click", () => go("dashboard"));
 
-  const content = div("content");
-  const card = div("card");
-  const bookingId = appState.booking.bookingId || "B-000000";
-  card.innerHTML = `
-    <div class="state ok"><div class="big">Success</div><div class="badge">Card Payment</div></div>
-    <div class="summary-row"><b>Booking ID</b><span>${escapeHtml(bookingId)}</span></div>
-    <div class="summary-row"><b>Transaction type</b><span>${escapeHtml(appState.payment.txn.type || "Card")}</span></div>
-    <div class="summary-row"><b>Transaction ID</b><span>${escapeHtml(appState.payment.txn.id || "T-000000")}</span></div>
-    <div class="summary-row"><b>Total</b><span><b>$${appState.booking.total.toFixed(2)}</b></span></div>
-  `;
-  content.append(card, button("Print Receipt", "btn btn-primary", () => navigate(SCREENS.RECEIPT)));
-  wrap.appendChild(content);
-  return wrap;
-}
+    yesBtn?.addEventListener("click", () => {
+      state.payment.method = "cash";
+      state.payment.cardMode = "";
+      if (!state.booking.transactionId) state.booking.transactionId = randDigits(13);
+      go("cashPaymentSuccessful");
+    });
+  }
 
-/* 9B) Cash success */
-function CashSuccess() {
-  const wrap = document.createElement("div");
-  wrap.appendChild(TopBar({ left: null, title: "Payment Successful", right: null }));
+  function bindCashSuccess() {
+    recomputeBooking();
 
-  const content = div("content");
-  const card = div("card");
-  const bookingId = appState.booking.bookingId || "B-000000";
-  card.innerHTML = `
-    <div class="state ok"><div class="big">Success</div><div class="badge">Cash Payment</div></div>
-    <div class="summary-row"><b>Booking ID</b><span>${escapeHtml(bookingId)}</span></div>
-    <div class="summary-row"><b>Transaction type</b><span>Cash</span></div>
-    <div class="summary-row"><b>Total</b><span><b>$${appState.booking.total.toFixed(2)}</b></span></div>
-  `;
-  content.append(card, button("Print Receipt", "btn btn-primary", () => navigate(SCREENS.RECEIPT)));
-  wrap.appendChild(content);
-  return wrap;
-}
+    setRowValue("Guest", state.guest.fullName || "Full Name");
+    setRowValue("Check-in", formatDateTime(state.stay.checkin, "checkin"));
+    setRowValue("Check-out", formatDateTime(state.stay.checkout, "checkout"));
+    setRowValue("No. of Days", String(state.booking.days || 0));
+    setRowValue("Room Number", state.stay.room || "000");
 
-/* 9C) Card declined */
-function CardDeclined() {
-  const wrap = document.createElement("div");
-  wrap.appendChild(TopBar({ left: null, title: "Payment Declined", right: null }));
+    const guestCount = (parseInt(state.stay.adults || "0", 10) || 0) + (parseInt(state.stay.children || "0", 10) || 0);
+    setRowValue("Guests", String(guestCount));
 
-  const content = div("content");
-  const card = div("card");
-  card.innerHTML = `
-    <div class="state bad"><div class="big">Declined</div><div class="badge">Card payment failed</div></div>
-    <div class="summary-row"><b>Transaction type</b><span>${escapeHtml(appState.payment.txn.type || "Card")}</span></div>
-    <div class="summary-row"><b>Total</b><span><b>$${appState.booking.total.toFixed(2)}</b></span></div>
-  `;
+    setRowValue("Booking ID", state.booking.bookingId || randDigits(10));
+    setRowValue("Transaction Type", "Cash");
+    setRowValue("Total Amount", money(state.booking.total));
 
-  const actions = div("actions-row");
-  const retry = button("Retry", "btn", () => {});
-  retry.disabled = true;
-  actions.append(retry, button("Change Method", "btn btn-primary", () => navigate(SCREENS.BOOKING_SUMMARY)));
+    $(".primary-btn", root)?.addEventListener("click", () => go("receiptPrinted"));
+  }
 
-  content.append(card, actions);
-  wrap.appendChild(content);
-  return wrap;
-}
+  function bindCardPayment() {
+    const backBtn = $(".icon-btn[aria-label='Back']", root);
+    const closeBtn = $(".icon-btn.close", root);
+    const tapBtn = $(".tap-btn", root);
+    const payBtn = $(".primary-btn", root);
 
-/* 10) Receipt Printed */
-function ReceiptPrinted() {
-  const wrap = document.createElement("div");
-  wrap.appendChild(TopBar({ left: null, title: "Receipt Printed", right: null }));
+    recomputeBooking();
+    setRowValue("Total Amount", money(state.booking.total));
 
-  const content = div("content");
-  const card = div("card");
-  card.innerHTML = `<div class="state ok"><div class="big">Receipt Printed</div><div class="badge">Print complete</div></div>`;
+    backBtn?.addEventListener("click", () => history.back());
+    closeBtn?.addEventListener("click", () => go("dashboard"));
 
-  const actions = div("actions-row");
-  const share = button("Share", "btn", async () => {
-    const text = `Booking ${appState.booking.bookingId || ""} • Total $${appState.booking.total.toFixed(2)}`;
-    if (navigator.share) {
-      try { await navigator.share({ title: "Receipt", text }); } catch {}
-    } else {
-      await navigator.clipboard?.writeText?.(text);
-      showSnackbar("Share not available. Copied summary to clipboard.");
-    }
-  });
-  const done = button("Done", "btn btn-primary", () => { resetFlow(); navigate(SCREENS.DASHBOARD); });
+    tapBtn?.addEventListener("click", () => {
+      state.payment.method = "card";
+      state.payment.cardMode = "tap";
+      go("tapToPay");
+    });
 
-  actions.append(share, done);
-  content.append(card, actions);
-  wrap.appendChild(content);
-  return wrap;
-}
+    payBtn?.addEventListener("click", () => {
+      state.payment.method = "card";
+      state.payment.cardMode = "manual";
 
-/* ----------------------- Scanner implementation ----------------------- */
-async function initScannerEngine() {
-  if (appState.scanner.detector || appState.scanner.zxingReader) return;
+      // Deterministic decline simulation:
+      // If card number ends in an odd digit => declined, else approved.
+      const cardNumber = ($("#cardNumber", root)?.value || "").replace(/\s+/g, "");
+      const last = cardNumber.replace(/\D/g, "").slice(-1);
+      const decline = last ? (Number(last) % 2 === 1) : false;
 
-  if ("BarcodeDetector" in window) {
-    try {
-      const formats = await window.BarcodeDetector.getSupportedFormats?.();
-      if (Array.isArray(formats) && formats.includes("pdf417")) {
-        appState.scanner.detector = new BarcodeDetector({ formats: ["pdf417"] });
-        appState.scanner.engineName = "BarcodeDetector (native)";
-        return;
+      go("cardPaymentProcessing");
+      processingTimer = setTimeout(() => {
+        go(decline ? "cardPaymentDeclined" : "cardPaymentSuccessful", { replace: true });
+      }, 4000);
+    });
+  }
+
+  function bindTapToPay() {
+    recomputeBooking();
+
+    setRowValue("Guest", state.guest.fullName || "Full Name");
+    setRowValue("Room Number", state.stay.room || "000");
+    setRowValue("Total Amount", money(state.booking.total));
+
+    const closeBtn = $(".close-btn", root);
+    closeBtn?.addEventListener("click", () => history.back());
+
+    // Requirement: tap anywhere to simulate tap-to-pay.
+    const canvas = $(".canvas", root);
+    canvas?.addEventListener("click", (e) => {
+      if (closeBtn && e.target && closeBtn.contains(e.target)) return;
+
+      state.payment.method = "card";
+      state.payment.cardMode = "tap";
+
+      go("cardPaymentProcessing");
+      processingTimer = setTimeout(() => {
+        go("cardPaymentSuccessful", { replace: true });
+      }, 4000);
+    });
+  }
+
+  function bindCardDeclined() {
+    recomputeBooking();
+
+    setRowValue("Guest", state.guest.fullName || "Full Name");
+    setRowValue("Room Number", state.stay.room || "000");
+    setRowValue("Booking ID", state.booking.bookingId || randDigits(10));
+    setRowValue("Transaction Type", "Debit/Credit/NFC");
+    setRowValue("Transaction ID", state.booking.transactionId || randDigits(13));
+    setRowValue("Total Amount", money(state.booking.total));
+
+    const btns = $$(".btn", root);
+    btns.find(b => b.textContent.trim() === "Retry Payment")?.addEventListener("click", () => go("cardPayment"));
+    btns.find(b => b.textContent.trim() === "Change Method")?.addEventListener("click", () => go("bookingSummary"));
+  }
+
+  function bindCardSuccess() {
+    recomputeBooking();
+
+    setRowValue("Guest", state.guest.fullName || "Full Name");
+    setRowValue("Room Number", state.stay.room || "000");
+    setRowValue("Booking ID", state.booking.bookingId || randDigits(10));
+    setRowValue("Transaction Type", state.payment.cardMode === "tap" ? "NFC" : "Debit/Credit");
+    setRowValue("Transaction ID", state.booking.transactionId || randDigits(13));
+    setRowValue("Total Amount", money(state.booking.total));
+
+    $(".primary-btn", root)?.addEventListener("click", () => go("receiptPrinted"));
+  }
+
+  function bindReceiptPrinted() {
+    const btns = $$(".btn", root);
+    const share = btns.find(b => b.textContent.trim() === "Share");
+    const done = btns.find(b => b.textContent.trim() === "Done");
+
+    share?.addEventListener("click", async () => {
+      const text = `Receipt for ${state.guest.fullName || "Guest"} — Total ${money(state.booking.total)}`;
+      try {
+        if (navigator.share) await navigator.share({ title: "Receipt", text });
+        else alert(text);
+      } catch {
+        // ignore
       }
-      appState.scanner.engineName = "BarcodeDetector (no pdf417) → ZXing";
-    } catch {
-      appState.scanner.engineName = "BarcodeDetector error → ZXing";
-    }
-  } else {
-    appState.scanner.engineName = "ZXing (fallback)";
+    });
+
+    done?.addEventListener("click", () => {
+      // Reset flow state (keep known guests).
+      state.guest = { fullName: "", streetAddress: "", city: "", state: "", zip: "", gender: "", age: "", idType: "", idNumber: "" };
+      state.stay = { checkin: "", checkout: "", adults: "", children: "", room: "", rate: "", deposit: "", discount: "" };
+      state.booking = { days: 0, rateAmount: 0, total: 0, bookingId: "", transactionId: "" };
+      state.payment = { method: "", cardMode: "" };
+      go("dashboard");
+    });
   }
 
-  appState.scanner.zxing = await import("https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/+esm");
-  appState.scanner.zxingReader = new appState.scanner.zxing.BrowserMultiFormatReader();
-
-  const hints = new Map();
-  hints.set(appState.scanner.zxing.DecodeHintType.POSSIBLE_FORMATS, [
-    appState.scanner.zxing.BarcodeFormat.PDF_417
-  ]);
-  appState.scanner.zxingReader.hints = hints;
-
-  appState.scanner.engineName = "ZXing (@zxing/library)";
-}
-
-async function startScanner(videoEl) {
-  appState.scanner.stopLoop = false;
-
-  const constraints = {
-    audio: false,
-    video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-  };
-
-  const stream = await navigator.mediaDevices.getUserMedia(constraints);
-  appState.scanner.stream = stream;
-  videoEl.srcObject = stream;
-  await videoEl.play();
-
-  appState.scanner.cameraState = "running";
-  scanLoop(videoEl);
-}
-
-async function stopScanner() {
-  appState.scanner.stopLoop = true;
-
-  const videoEl = $("#scannerVideo");
-  if (videoEl) {
-    try { videoEl.pause(); } catch {}
-    videoEl.srcObject = null;
-  }
-
-  if (appState.scanner.stream) {
-    appState.scanner.stream.getTracks().forEach(t => t.stop());
-  }
-  appState.scanner.stream = null;
-  appState.scanner.cameraState = "idle";
-}
-
-async function toggleTorch() {
-  try {
-    const track = appState.scanner.stream?.getVideoTracks?.()?.[0];
-    if (!track) { showSnackbar("Start the camera first."); return; }
-    const caps = track.getCapabilities?.();
-    if (!caps?.torch) { showSnackbar("Torch not available on this device/browser."); return; }
-    const settings = track.getSettings?.();
-    const isOn = !!settings?.torch;
-    await track.applyConstraints({ advanced: [{ torch: !isOn }] });
-  } catch {
-    showSnackbar("Torch not available on this device/browser.");
-  }
-}
-
-/**
- * UPDATED: On successful scan:
- * - fill guest form
- * - stop scanner
- * - return to Guest Registration
- * - DO NOT navigate to New/Returning Guest
- */
-async function publishScan(text) {
-  const now = Date.now();
-  if (!text) return;
-  if (text === appState.scanner.lastText && (now - appState.scanner.lastAt) < 1500) return;
-
-  appState.scanner.lastText = text;
-  appState.scanner.lastAt = now;
-
-  const parsed = parseAAMVA(text);
-  if (!parsed.ok) {
-    showSnackbar("Auto-fill failed. Please enter details manually."); // 11
-    return;
-  }
-
-  applyAAMVAToGuestForm(parsed.fields, text);
-  showSnackbar("Details auto-filled."); // 13
-
-  await stopScanner();
-  navigate(SCREENS.GUEST_REG);
-}
-
-async function scanLoop(videoEl) {
-  if (appState.scanner.stopLoop) return;
-
-  try {
-    if (appState.scanner.detector) {
-      const barcodes = await appState.scanner.detector.detect(videoEl);
-      if (barcodes?.length) {
-        const val = barcodes[0].rawValue || "";
-        await publishScan(val);
-        return;
-      }
-    } else if (appState.scanner.zxingReader && appState.scanner.zxing) {
-      if (videoEl.readyState >= 2) {
-        const w = videoEl.videoWidth;
-        const h = videoEl.videoHeight;
-
-        const cropW = Math.floor(w * 0.90);
-        const cropH = Math.floor(h * 0.55);
-        const sx = Math.floor((w - cropW) / 2);
-        const sy = Math.floor((h - cropH) / 2);
-
-        const canvas = getScratchCanvas();
-        const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        canvas.width = cropW;
-        canvas.height = cropH;
-        ctx.drawImage(videoEl, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
-
-        const imageData = ctx.getImageData(0, 0, cropW, cropH);
-        const z = appState.scanner.zxing;
-
-        const luminance = new z.RGBLuminanceSource(imageData.data, cropW, cropH);
-        const binarizer = new z.HybridBinarizer(luminance);
-        const bitmap = new z.BinaryBitmap(binarizer);
-
-        try {
-          const res = appState.scanner.zxingReader.decodeBitmap(bitmap);
-          const txt = res?.getText?.() || "";
-          if (txt) {
-            await publishScan(txt);
-            return;
-          }
-        } catch {}
-      }
-    }
-  } catch {}
-
-  setTimeout(() => scanLoop(videoEl), 110);
-}
-
-async function scanImageFile(file) {
-  if (!file) return;
-  const canvas = getScratchCanvas();
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-
-  const img = new Image();
-  img.src = URL.createObjectURL(file);
-  await img.decode();
-
-  canvas.width = img.naturalWidth;
-  canvas.height = img.naturalHeight;
-  ctx.drawImage(img, 0, 0);
-
-  if (appState.scanner.detector) {
-    const barcodes = await appState.scanner.detector.detect(canvas);
-    if (barcodes?.length) {
-      await publishScan(barcodes[0].rawValue || "");
-      return;
-    }
-    showSnackbar("Auto-fill failed. Please enter details manually."); // 11
-  } else if (appState.scanner.zxingReader && appState.scanner.zxing) {
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const z = appState.scanner.zxing;
-
-    const luminance = new z.RGBLuminanceSource(imageData.data, canvas.width, canvas.height);
-    const binarizer = new z.HybridBinarizer(luminance);
-    const bitmap = new z.BinaryBitmap(binarizer);
-
-    try {
-      const res = appState.scanner.zxingReader.decodeBitmap(bitmap);
-      await publishScan(res?.getText?.() || "");
-    } catch {
-      showSnackbar("Auto-fill failed. Please enter details manually."); // 11
-    }
-  }
-}
-
-function updateScannerPills() {
-  const enginePill = $("#enginePill");
-  const cameraPill = $("#cameraPill");
-  if (enginePill) enginePill.textContent = `Engine: ${appState.scanner.engineName || "…"}`;
-  if (cameraPill) cameraPill.textContent = `Camera: ${appState.scanner.cameraState || "idle"}`;
-}
-
-let scratchCanvas = null;
-function getScratchCanvas() {
-  if (!scratchCanvas) scratchCanvas = document.createElement("canvas");
-  return scratchCanvas;
-}
-
-/* ----------------------- AAMVA parsing + mapping ----------------------- */
-/**
- * UPDATED: More robust AAMVA parser.
- * - Splits on \n, \r, record separators (\x1e, \x1d)
- * - Extracts fields from segments starting with 3-char codes
- * - Fallback: scans whole string for known codes and slices values between codes
- */
-function parseAAMVA(raw) {
-  if (!raw || typeof raw !== "string") return { ok: false, fields: {} };
-
-  const text = raw
-    .replace(/\u0000/g, "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n");
-
-  const fields = {};
-
-  // pass 1: split by common separators
-  const segments = text.split(/[\n\x1e\x1d]+/).map(s => s.trim()).filter(Boolean);
-  for (const seg of segments) {
-    const m = seg.match(/^([A-Z0-9]{3})(.*)$/);
-    if (!m) continue;
-    const key = m[1];
-    const val = (m[2] || "").trim();
-    if (val && !fields[key]) fields[key] = val;
-  }
-
-  // pass 2: fallback scanning in case the decoder returns a single blob
-  const KNOWN = ["DAQ","DCS","DAC","DAD","DAG","DAI","DAJ","DAK","DBC","DBB"];
-  const hits = [];
-  for (const code of KNOWN) {
-    const idx = text.indexOf(code);
-    if (idx !== -1) hits.push({ code, idx });
-  }
-  hits.sort((a,b) => a.idx - b.idx);
-
-  for (let i = 0; i < hits.length; i++) {
-    const { code, idx } = hits[i];
-    if (fields[code]) continue;
-
-    const start = idx + 3;
-    const end = (i + 1 < hits.length) ? hits[i + 1].idx : text.length;
-    let val = text.slice(start, end);
-
-    // stop at delimiter if present
-    val = val.split(/[\n\r\x1e\x1d]/)[0];
-    // strip non-printables
-    val = val.replace(/[^\x20-\x7E]/g, "");
-    val = val.trim();
-
-    if (val) fields[code] = val;
-  }
-
-  const ok = !!(fields.DAQ || fields.DCS || fields.DAC);
-  return { ok, fields };
-}
-
-function applyAAMVAToGuestForm(fields, raw) {
-  appState.guestForm.rawAamva = raw;
-  appState.guestForm.scanHints.stateInvalid = "";
-
-  const first = (fields.DAC || "").trim();
-  const middle = (fields.DAD || "").trim();
-  const last = (fields.DCS || "").trim();
-  const fullName = [first, middle, last].filter(Boolean).join(" ").trim();
-  if (fullName) appState.guestForm.fullName = fullName;
-
-  if (fields.DAG) appState.guestForm.streetAddress = fields.DAG.trim();
-  if (fields.DAI) appState.guestForm.city = fields.DAI.trim();
-
-  const st = (fields.DAJ || "").trim().toUpperCase();
-  if (st && US_STATES.includes(st)) {
-    appState.guestForm.state = st;
-  } else if (st) {
-    appState.guestForm.state = "";
-    appState.guestForm.scanHints.stateInvalid = "State value from scan doesn't match list.";
-  }
-
-  if (fields.DAK) {
-    const z = fields.DAK.trim();
-    const m = z.match(/^(\d{5})/);
-    appState.guestForm.zip = m ? m[1] : z;
-  }
-
-  if (fields.DBC) {
-    const g = fields.DBC.trim().toUpperCase();
-    appState.guestForm.gender =
-      (g === "1" || g === "M" || g === "MALE") ? "Male" :
-      (g === "2" || g === "F" || g === "FEMALE") ? "Female" :
-      "Other";
-  }
-
-  if (fields.DBB) {
-    const dob = parseAAMVADate(fields.DBB.trim());
-    if (dob) {
-      appState.guestForm.dob = dob;
-      appState.guestForm.age = String(calcAge(dob));
-    }
-  }
-
-  // Identification Number (DAQ) — FIXED robustness via updated parser
-  if (fields.DAQ) appState.guestForm.idNumber = fields.DAQ.trim();
-
-  // Default ID type if empty (keeps flow usable)
-  if (!appState.guestForm.idType) appState.guestForm.idType = "DL";
-}
-
-function parseAAMVADate(s) {
-  const t = s.replace(/\D/g, "");
-  if (t.length !== 8) return null;
-  if (t.startsWith("19") || t.startsWith("20")) {
-    const yyyy = t.slice(0, 4), mm = t.slice(4, 6), dd = t.slice(6, 8);
-    return `${yyyy}-${mm}-${dd}`;
-  } else {
-    const mm = t.slice(0, 2), dd = t.slice(2, 4), yyyy = t.slice(4, 8);
-    return `${yyyy}-${mm}-${dd}`;
-  }
-}
-
-function calcAge(dobISO) {
-  const [y, m, d] = dobISO.split("-").map(Number);
-  const dob = new Date(y, m - 1, d);
-  const now = new Date();
-  let age = now.getFullYear() - dob.getFullYear();
-  const md = now.getMonth() - dob.getMonth();
-  if (md < 0 || (md === 0 && now.getDate() < dob.getDate())) age--;
-  return Math.max(0, age);
-}
-
-/* ----------------------- Validation ----------------------- */
-function validateGuestForm(f) {
-  const errs = {};
-  if (!f.fullName.trim()) errs.fullName = "Required";
-  if (!f.streetAddress.trim()) errs.streetAddress = "Required";
-  if (!f.city.trim()) errs.city = "Required";
-  if (!f.state.trim()) errs.state = "Required";
-  if (!/^\d{5}$/.test((f.zip || "").trim())) errs.zip = "5-digit ZIP required";
-  if (!f.gender.trim()) errs.gender = "Required";
-  if (!String(f.age || "").trim() || isNaN(Number(f.age))) errs.age = "Valid age required";
-  if (!f.idNumber.trim()) errs.idNumber = "Required";
-  return errs;
-}
-
-function validateStay(s) {
-  const errs = {};
-  if (!s.checkIn) errs.checkIn = "Required";
-  if (!s.checkOut) errs.checkOut = "Required";
-  if (s.checkIn && s.checkOut && new Date(s.checkOut) <= new Date(s.checkIn)) errs.checkOut = "Must be after check-in";
-  if (!s.roomId) errs.roomId = "Required";
-  if (!s.dailyRate) errs.dailyRate = "Required";
-  const dep = Number(s.deposit || 0);
-  const disc = Number(s.discount || 0);
-  if (isNaN(dep) || dep < 0) errs.deposit = "Must be a number ≥ 0";
-  if (isNaN(disc) || disc < 0) errs.discount = "Must be a number ≥ 0";
-  return errs;
-}
-
-/* ----------------------- Booking ----------------------- */
-function computeBooking() {
-  const nights = diffNights(appState.stay.checkIn, appState.stay.checkOut);
-  appState.booking.nights = nights;
-
-  const rate = Number(appState.stay.dailyRate || 0);
-  const deposit = Number(appState.stay.deposit || 0);
-  const discount = Number(appState.stay.discount || 0);
-
-  const subtotal = nights * rate;
-  appState.booking.total = Math.max(0, subtotal + deposit - discount);
-  appState.booking.bookingId = `B-${Math.floor(100000 + Math.random() * 899999)}`;
-}
-
-/* ----------------------- Payment simulation ----------------------- */
-function startProcessingOutcome() {
-  appState.payment.txn.id = `T-${Math.floor(100000 + Math.random() * 899999)}`;
-  setTimeout(() => {
-    const ok = Math.random() < 0.8;
-    if (ok) navigate(SCREENS.CARD_SUCCESS);
-    else navigate(SCREENS.CARD_DECLINED);
-  }, 1800);
-}
-
-/* ----------------------- Guest lookup ----------------------- */
-function lookupGuest(idType, idNumber) {
-  const guests = loadGuests();
-  const num = String(idNumber || "").trim();
-  const type = String(idType || "").trim().toUpperCase();
-
-  let profile = null;
-  if (type) {
-    profile = guests.find(g => (g.idType || "").toUpperCase() === type && String(g.idNumber || "").trim() === num);
-  } else {
-    profile = guests.find(g => String(g.idNumber || "").trim() === num);
-  }
-
-  return profile ? { found: true, profile } : { found: false, profile: null };
-}
-
-/* ----------------------- Field Components ----------------------- */
-function inputField(label, key, placeholder, attrs = {}) {
-  const f = div("field");
-  f.appendChild(divText("label", label));
-  const inp = document.createElement("input");
-  inp.className = "input";
-  inp.placeholder = placeholder;
-  inp.value = appState.guestForm[key] || "";
-  Object.assign(inp, attrs);
-  inp.addEventListener("input", (e) => {
-    appState.guestForm[key] = e.target.value;
-    if (key === "state") appState.guestForm.scanHints.stateInvalid = "";
-  });
-  f.append(inp, inlineErrorEl(key));
-  return f;
-}
-
-function selectField(label, key, options, placeholder = "Select") {
-  const f = div("field");
-  f.appendChild(divText("label", label));
-  const sel = document.createElement("select");
-  sel.className = "input";
-
-  for (const opt of options) {
-    const o = document.createElement("option");
-    o.value = opt;
-    o.textContent = opt || placeholder;
-    sel.appendChild(o);
-  }
-  sel.value = appState.guestForm[key] || "";
-  sel.addEventListener("change", (e) => {
-    appState.guestForm[key] = e.target.value;
-    if (key === "state") appState.guestForm.scanHints.stateInvalid = "";
-  });
-
-  f.append(sel, inlineErrorEl(key));
-  return f;
-}
-
-function dateField(label, key) {
-  const f = div("field");
-  f.appendChild(divText("label", label));
-  const inp = document.createElement("input");
-  inp.type = "date";
-  inp.className = "input";
-  inp.value = appState.stay[key] || "";
-  inp.addEventListener("input", (e) => {
-    appState.stay[key] = e.target.value;
-    if (key === "checkIn" && new Date(appState.stay.checkOut) <= new Date(appState.stay.checkIn)) {
-      appState.stay.checkOut = addDaysISO(appState.stay.checkIn, 1);
-      render();
-    }
-  });
-  f.append(inp, inlineErrorEl(key));
-  return f;
-}
-
-function selectStayField(label, key, options, placeholder = "Select", labeler = null) {
-  const f = div("field");
-  f.appendChild(divText("label", label));
-  const sel = document.createElement("select");
-  sel.className = "input";
-
-  if (placeholder !== null) {
-    const o0 = document.createElement("option");
-    o0.value = "";
-    o0.textContent = placeholder;
-    sel.appendChild(o0);
-  }
-
-  for (const opt of options) {
-    const o = document.createElement("option");
-    o.value = opt;
-    o.textContent = labeler ? labeler(opt) : opt;
-    sel.appendChild(o);
-  }
-
-  sel.value = appState.stay[key] || "";
-  sel.addEventListener("change", (e) => {
-    appState.stay[key] = e.target.value;
-    if (key === "roomId") {
-      const opts = dailyRateOptionsForRoom(appState.stay.roomId);
-      appState.stay.dailyRate = opts[0] || "";
-      render();
-    }
-  });
-
-  f.append(sel, inlineErrorEl(key));
-  return f;
-}
-
-function inputStayField(label, key, attrs = {}) {
-  const f = div("field");
-  f.appendChild(divText("label", label));
-  const inp = document.createElement("input");
-  inp.className = "input";
-  inp.value = appState.stay[key] || "";
-  Object.assign(inp, attrs);
-  inp.addEventListener("input", (e) => { appState.stay[key] = e.target.value; });
-  f.append(inp, inlineErrorEl(key));
-  return f;
-}
-
-function inputPayment(label, key, placeholder, attrs = {}) {
-  const f = div("field");
-  const errKey = `card_${key}`;
-  f.appendChild(divText("label", label));
-  const inp = document.createElement("input");
-  inp.className = "input";
-  inp.placeholder = placeholder;
-  inp.value = appState.payment.card[key] || "";
-  Object.assign(inp, attrs);
-  inp.addEventListener("input", (e) => { appState.payment.card[key] = e.target.value; });
-  f.append(inp, inlineErrorEl(errKey));
-  return f;
-}
-
-function row(a, b) { const r = div("input-row"); r.append(a, b); return r; }
-
-function tile(text, kind, onClick) {
-  const t = document.createElement("div");
-  t.className = `tile ${kind || ""}`.trim();
-  t.textContent = text;
-  if (kind !== "disabled") t.addEventListener("click", onClick);
-  return t;
-}
-
-function hrOther() {
-  const wrap = div("hr-row");
-  wrap.append(div("hr"), divText("hr-label", "Other"), div("hr"));
-  return wrap;
-}
-
-/* ----------------------- Inline errors ----------------------- */
-function inlineErrorEl(key) {
-  const e = document.createElement("div");
-  e.className = "error";
-  e.dataset.errfor = key;
-  e.textContent = "";
-  return e;
-}
-function setInlineError(key, msg) {
-  const el = document.querySelector(`[data-errfor="${CSS.escape(key)}"]`);
-  if (el) el.textContent = msg;
-}
-function clearInlineErrors() {
-  $$(`[data-errfor]`).forEach(el => el.textContent = "");
-}
-
-/* ----------------------- Misc helpers ----------------------- */
-function escapeHtml(s) {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function todayISO() {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-function addDaysISO(iso, days) {
-  const d = new Date(iso);
-  d.setDate(d.getDate() + days);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-function diffNights(checkInISO, checkOutISO) {
-  const a = new Date(checkInISO);
-  const b = new Date(checkOutISO);
-  const ms = b - a;
-  const nights = Math.round(ms / (1000 * 60 * 60 * 24));
-  return Math.max(1, nights);
-}
-function roomLabelById(id) {
-  return (ROOMS.find(r => r.id === id)?.name) || id;
-}
-function dailyRateOptionsForRoom(roomId) {
-  const r = ROOMS.find(x => x.id === roomId);
-  return (r?.rates || [119]).map(n => String(n));
-}
-
-function resetFlow() {
-  appState.guestForm = {
-    fullName: "",
-    streetAddress: "",
-    city: "",
-    state: "",
-    zip: "",
-    gender: "",
-    age: "",
-    dob: "",
-    idType: "",
-    idNumber: "",
-    rawAamva: "",
-    scanHints: { stateInvalid: "" },
-  };
-  appState.guestLookup = { found: false, guestId: null, profile: null };
-  appState.stay = { checkIn: todayISO(), checkOut: addDaysISO(todayISO(), 1), adults: "1", children: "0", roomId: "101", dailyRate: "119", deposit: "0", discount: "0" };
-  appState.booking = { nights: 1, total: 0, bookingId: null };
-  appState.payment = { method: null, card: { number: "", expiry: "", cvv: "", name: "", zip: "" }, txn: { type: "", id: "" }, lastOutcome: null };
-  stopScanner().catch(()=>{});
-}
-
-/* ----------------------- Boot ----------------------- */
-window.addEventListener("beforeunload", () => {
-  if (appState.scanner.stream) appState.scanner.stream.getTracks().forEach(t => t.stop());
-});
-
-render();
+  boot();
+})();

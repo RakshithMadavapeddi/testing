@@ -1,0 +1,334 @@
+<!-- guestRegistration.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Guest Registration</title>
+  <style>
+    :root{
+      --bg:#f2f2f2;
+      --surface:#ffffff;
+      --surface-2:#e1e1e1;
+      --border:#d9d9d9;
+      --text:#1e1e1e;
+      --muted:#b3b3b3;
+      --brand:#2c2c2c;
+
+      --pad:24px;
+      --gap:24px;
+      --radius:8px;
+      --radius-sm:4px;
+      --shadow:0px 1px 2px rgba(0,0,0,.30), 0px 1px 3px rgba(0,0,0,.15);
+    }
+
+    *{ box-sizing:border-box; }
+    html, body { height:100%; }
+    body{
+      margin:0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background:var(--bg);
+      color:var(--text);
+    }
+
+    /* Centered mobile frame (matches 393px artboard) */
+    .app{
+      min-height:100vh;
+      display:flex;
+      justify-content:center;
+    }
+    .frame{
+      width:100%;
+      max-width:393px;
+      min-height:100vh;
+      background:var(--bg);
+      display:flex;
+      flex-direction:column;
+    }
+
+    /* Top App Bar */
+    .topbar{
+      background:var(--surface);
+      padding:var(--pad);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      box-shadow:var(--shadow);
+      overflow:hidden;
+    }
+    .icon-btn{
+      width:24px;
+      height:24px;
+      border:0;
+      padding:0;
+      background:transparent;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+    }
+    .icon-btn img{ width:24px; height:24px; display:block; }
+    .title{
+      font-weight:700;
+      font-size:20px;
+      line-height:1.2;
+      text-align:center;
+      white-space:nowrap;
+      margin:0;
+    }
+
+    /* Progress Bar */
+    .progress{
+      height:4px;
+      width:100%;
+      background:var(--surface-2);
+      display:flex;
+      overflow:hidden;
+    }
+    .step{ flex:1; }
+    .step.is-active{ background:#000; }
+
+    /* Body */
+    .content{
+      flex:1;
+      padding:var(--pad);
+      display:flex;
+      flex-direction:column;
+      gap:var(--gap);
+      overflow:auto;
+    }
+
+    .field{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      width:100%;
+    }
+    .label{
+      font-weight:600;
+      font-size:16px;
+      line-height:1.4;
+    }
+
+    .control{
+      width:100%;
+      height:40px;
+      border:1px solid var(--border);
+      border-radius:var(--radius-sm);
+      background:#fff;
+      padding:12px 16px;
+      font-size:16px;
+      line-height:1;
+      outline:none;
+    }
+    .control::placeholder{ color:var(--muted); }
+    select.control{
+      padding-right:40px;
+      appearance:none;
+      -webkit-appearance:none;
+      -moz-appearance:none;
+      background-image: url("https://www.figma.com/api/mcp/asset/664fe063-f55f-4c3e-b37e-c47458749b4c");
+      background-repeat:no-repeat;
+      background-position: right 12px center;
+      background-size:10px 6px;
+    }
+
+    .row{
+      display:flex;
+      gap:24px;
+      width:100%;
+    }
+    .row .field{ flex:1; min-width:0; }
+
+    /* Bottom App Bar */
+    .bottombar{
+      background:var(--surface);
+      padding:var(--pad);
+      box-shadow:var(--shadow);
+      overflow:hidden;
+    }
+    .primary-btn{
+      width:100%;
+      border:1px solid var(--brand);
+      background:var(--brand);
+      color:#f5f5f5;
+      padding:12px;
+      border-radius:var(--radius);
+      font-size:16px;
+      line-height:1;
+      cursor:pointer;
+    }
+    .primary-btn:active{ transform: translateY(1px); }
+
+    /* Optional: nice focus */
+    .control:focus, .primary-btn:focus, .icon-btn:focus{
+      outline: 2px solid rgba(0,0,0,0.25);
+      outline-offset: 2px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <main class="frame" aria-label="Guest Registration Screen">
+      <!-- Top App Bar -->
+      <header class="topbar" role="banner">
+        <button class="icon-btn" type="button" aria-label="Back">
+          <img src="https://www.figma.com/api/mcp/asset/1e4802d7-6430-446c-967a-021dd422cc74" alt="" />
+        </button>
+
+        <h1 class="title">Guest Registration</h1>
+
+        <button class="icon-btn" type="button" aria-label="Scan ID">
+          <img src="https://www.figma.com/api/mcp/asset/0caba6ea-fd94-4336-9b48-9eb56b2d26bf" alt="" />
+        </button>
+      </header>
+
+      <!-- Progress Bar -->
+      <div class="progress" aria-label="Progress">
+        <div class="step is-active" aria-hidden="true"></div>
+        <div class="step" aria-hidden="true"></div>
+        <div class="step" aria-hidden="true"></div>
+        <div class="step" aria-hidden="true"></div>
+      </div>
+
+      <!-- Body -->
+      <form class="content" autocomplete="on">
+        <div class="field">
+          <label class="label" for="fullName">Full Name*</label>
+          <input class="control" id="fullName" name="fullName" type="text" placeholder="Enter Full Name" required />
+        </div>
+
+        <div class="field">
+          <label class="label" for="streetAddress">Street Address*</label>
+          <input class="control" id="streetAddress" name="streetAddress" type="text" placeholder="Enter Street Address" required />
+        </div>
+
+        <div class="field">
+          <label class="label" for="city">City*</label>
+          <input class="control" id="city" name="city" type="text" placeholder="Enter City" required />
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label class="label" for="state">State*</label>
+            <select class="control" id="state" name="state" required>
+              <option value="" selected disabled>Select</option>
+              <option value="AL">Alabama</option>
+              <option value="AK">Alaska</option>
+              <option value="AZ">Arizona</option>
+              <option value="AR">Arkansas</option>
+              <option value="CA">California</option>
+              <option value="CO">Colorado</option>
+              <option value="CT">Connecticut</option>
+              <option value="DE">Delaware</option>
+              <option value="FL">Florida</option>
+              <option value="GA">Georgia</option>
+              <option value="HI">Hawaii</option>
+              <option value="ID">Idaho</option>
+              <option value="IL">Illinois</option>
+              <option value="IN">Indiana</option>
+              <option value="IA">Iowa</option>
+              <option value="KS">Kansas</option>
+              <option value="KY">Kentucky</option>
+              <option value="LA">Louisiana</option>
+              <option value="ME">Maine</option>
+              <option value="MD">Maryland</option>
+              <option value="MA">Massachusetts</option>
+              <option value="MI">Michigan</option>
+              <option value="MN">Minnesota</option>
+              <option value="MS">Mississippi</option>
+              <option value="MO">Missouri</option>
+              <option value="MT">Montana</option>
+              <option value="NE">Nebraska</option>
+              <option value="NV">Nevada</option>
+              <option value="NH">New Hampshire</option>
+              <option value="NJ">New Jersey</option>
+              <option value="NM">New Mexico</option>
+              <option value="NY">New York</option>
+              <option value="NC">North Carolina</option>
+              <option value="ND">North Dakota</option>
+              <option value="OH">Ohio</option>
+              <option value="OK">Oklahoma</option>
+              <option value="OR">Oregon</option>
+              <option value="PA">Pennsylvania</option>
+              <option value="RI">Rhode Island</option>
+              <option value="SC">South Carolina</option>
+              <option value="SD">South Dakota</option>
+              <option value="TN">Tennessee</option>
+              <option value="TX">Texas</option>
+              <option value="UT">Utah</option>
+              <option value="VT">Vermont</option>
+              <option value="VA">Virginia</option>
+              <option value="WA">Washington</option>
+              <option value="WV">West Virginia</option>
+              <option value="WI">Wisconsin</option>
+              <option value="WY">Wyoming</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label class="label" for="zip">Zip Code*</label>
+            <input
+              class="control"
+              id="zip"
+              name="zip"
+              type="text"
+              inputmode="numeric"
+              pattern="^\d{5}$"
+              maxlength="5"
+              placeholder="5-digit ZIP code"
+              required
+            />
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label class="label" for="gender">Gender*</label>
+            <select class="control" id="gender" name="gender" required>
+              <option value="" selected disabled>Select</option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label class="label" for="age">Age*</label>
+            <input
+              class="control"
+              id="age"
+              name="age"
+              type="number"
+              min="0"
+              max="120"
+              placeholder="00"
+              required
+            />
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label" for="idType">Type of Identification</label>
+          <select class="control" id="idType" name="idType">
+            <option value="" selected disabled>Select</option>
+            <option value="DL">DL</option>
+            <option value="ID">ID</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="label" for="idNumber">Identification Number*</label>
+          <input class="control" id="idNumber" name="idNumber" type="text" placeholder="0000000000" required />
+        </div>
+      </form>
+
+      <!-- Bottom App Bar -->
+      <footer class="bottombar" role="contentinfo">
+        <button class="primary-btn" type="button">Next</button>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

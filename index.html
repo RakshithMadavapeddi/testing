@@ -1,30 +1,17 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Hotel Check-In Kiosk</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Check-In Prototype</title>
+
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- Screen-specific CSS (from the provided static .html files) is injected here by app.js -->
+  <style id="screenStyles"></style>
 </head>
 <body>
-  <div id="app" class="app-shell"></div>
-
-  <!-- Snackbar host -->
-  <div id="snackbarHost" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
-
-  <!-- Simple confirm modal -->
-  <div id="modalHost" class="modal-host hidden" role="dialog" aria-modal="true" aria-hidden="true">
-    <div class="modal-backdrop" data-action="closeModal"></div>
-    <div class="modal-card" role="document">
-      <div class="modal-title" id="modalTitle">Confirm</div>
-      <div class="modal-body" id="modalBody">Are you sure?</div>
-      <div class="modal-actions">
-        <button class="btn" id="modalCancel" data-action="closeModal">Cancel</button>
-        <button class="btn btn-primary" id="modalOk">OK</button>
-      </div>
-    </div>
-  </div>
-
-  <script type="module" src="./app.js"></script>
+  <div id="root"></div>
+  <script src="app.js" defer></script>
 </body>
 </html>
